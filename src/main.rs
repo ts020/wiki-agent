@@ -3,6 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 mod analyzer;
+mod chunker;
 mod generator;
 mod llm;
 mod scanner;

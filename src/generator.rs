@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+use crate::chunker;
 use crate::llm;
 use crate::types::{KeyFile, WikiNode};
 
@@ -35,8 +36,20 @@ pub async fn generate(output_dir: &Path, nodes: &mut [WikiNode], root: &Path) ->
 
         eprintln!("生成中: {}", node.title);
 
-        let content =
-            llm::generate_node_content(&node.title, &file_contents, &sibling_nodes).await?;
+        let chunks = chunker::chunk(&file_contents);
+        let content = if chunks.len() == 1 {
+            llm::generate_node_content(&node.title, &file_contents, &sibling_nodes).await?
+        } else {
+            eprintln!("  {} チャンクに分割", chunks.len());
+            let mut extractions = Vec::new();
+            for (i, chunk) in chunks.iter().enumerate() {
+                eprintln!("  チャンク {}/{} 抽出中", i + 1, chunks.len());
+                let ext = llm::extract_from_chunk(&node.title, chunk, i + 1, chunks.len()).await?;
+                extractions.push(ext);
+            }
+            eprintln!("  マージ中");
+            llm::merge_extractions(&node.title, &extractions, &sibling_nodes).await?
+        };
 
         node.summary = content.summary;
         node.responsibilities = content.responsibilities;
