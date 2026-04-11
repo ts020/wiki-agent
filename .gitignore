@@ -1,0 +1,8 @@
+# Local settings
+.claude/settings.local.json
+
+# Rust
+/target
+
+# Output
+/repo-wiki
