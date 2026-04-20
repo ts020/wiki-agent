@@ -1,5 +1,7 @@
+pub mod development;
 pub mod index;
 pub mod node;
+pub mod overview;
 pub mod paths;
 
 use std::fs;
@@ -7,10 +9,19 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::extract::{EntryPoint, TechStack, TestLayout};
 use crate::model::Node;
 
-/// 出力ルートに wiki 一式を書き出す。既存の出力ディレクトリは毎回フル再生成する。
-pub fn write_wiki(output_root: &Path, project_title: &str, nodes: &[Node]) -> Result<()> {
+/// 生成物一式を出力ルートへ書き出す。毎回フル再生成（FR-03）。
+pub struct WikiOutput<'a> {
+    pub project_title: &'a str,
+    pub nodes: &'a [Node],
+    pub tech_stack: &'a TechStack,
+    pub entry_points: &'a [EntryPoint],
+    pub test_layout: &'a TestLayout,
+}
+
+pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
     if output_root.exists() {
         if !output_root.is_dir() {
             anyhow::bail!(
@@ -24,19 +35,56 @@ pub fn write_wiki(output_root: &Path, project_title: &str, nodes: &[Node]) -> Re
     fs::create_dir_all(output_root)
         .with_context(|| format!("failed to create {}", output_root.display()))?;
 
-    for n in nodes {
+    for n in out.nodes {
         let path = output_root.join(&n.output_path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        let body = node::render_node(n);
-        fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))?;
+        fs::write(&path, node::render_node(n))
+            .with_context(|| format!("failed to write {}", path.display()))?;
     }
 
-    let idx = index::render_index(project_title, nodes);
+    write_file(
+        output_root,
+        "overview/tech-stack.md",
+        &overview::render_tech_stack(out.tech_stack),
+    )?;
+    write_file(
+        output_root,
+        "overview/entry-points.md",
+        &overview::render_entry_points(out.entry_points),
+    )?;
+    write_file(
+        output_root,
+        "overview/tests.md",
+        &overview::render_tests(out.test_layout),
+    )?;
+    write_file(
+        output_root,
+        "development/index.md",
+        &development::render_development(out.tech_stack),
+    )?;
+
+    let idx = index::render_index(
+        out.project_title,
+        out.nodes,
+        out.tech_stack,
+        out.entry_points,
+        out.test_layout,
+    );
     fs::write(output_root.join("index.md"), idx)
         .with_context(|| format!("failed to write index.md under {}", output_root.display()))?;
 
+    Ok(())
+}
+
+fn write_file(root: &Path, rel: &str, body: &str) -> Result<()> {
+    let path = root.join(rel);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
 }

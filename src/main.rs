@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 use repo_wiki::build::build_code_nodes;
-use repo_wiki::render::write_wiki;
+use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
+use repo_wiki::render::{WikiOutput, write_wiki};
 use repo_wiki::scan::{ScanConfig, scan};
 
 #[derive(Parser, Debug)]
@@ -43,14 +44,29 @@ fn main() -> anyhow::Result<()> {
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "repo-wiki".to_string());
 
+    let tech_stack = detect_tech_stack(&files, &target);
+    let entry_points = detect_entry_points(&files);
+    let test_layout = detect_test_layout(&files);
+
     let nodes = build_code_nodes(&files);
-    write_wiki(&cli.output, &project_title, &nodes)?;
+    write_wiki(
+        &cli.output,
+        &WikiOutput {
+            project_title: &project_title,
+            nodes: &nodes,
+            tech_stack: &tech_stack,
+            entry_points: &entry_points,
+            test_layout: &test_layout,
+        },
+    )?;
 
     tracing::info!(
         target = %target.display(),
         output = %cli.output.display(),
         files = files.len(),
         nodes = nodes.len(),
+        languages = tech_stack.languages.len(),
+        entry_points = entry_points.len(),
         "wiki generation complete"
     );
     Ok(())

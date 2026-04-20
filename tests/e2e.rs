@@ -1,46 +1,74 @@
 use std::fs;
 
 use repo_wiki::build::build_code_nodes;
-use repo_wiki::render::write_wiki;
+use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
+use repo_wiki::render::{WikiOutput, write_wiki};
 use repo_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
 
+fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &str) {
+    let files = scan(&ScanConfig {
+        root: target.to_path_buf(),
+        extra_excluded: Vec::new(),
+    });
+    let tech_stack = detect_tech_stack(&files, target);
+    let entry_points = detect_entry_points(&files);
+    let test_layout = detect_test_layout(&files);
+    let nodes = build_code_nodes(&files);
+    write_wiki(
+        output,
+        &WikiOutput {
+            project_title: title,
+            nodes: &nodes,
+            tech_stack: &tech_stack,
+            entry_points: &entry_points,
+            test_layout: &test_layout,
+        },
+    )
+    .unwrap();
+}
+
 #[test]
-fn generates_index_and_directory_nodes() {
+fn generates_index_overview_and_directory_nodes() {
     let tmp = TempDir::new().unwrap();
     let target = tmp.path().join("project");
     fs::create_dir_all(target.join("src/scan")).unwrap();
+    fs::write(
+        target.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\n[dependencies]\nserde = \"1\"\n",
+    )
+    .unwrap();
     fs::write(target.join("README.md"), "hello").unwrap();
     fs::write(target.join("src/main.rs"), "fn main() {}").unwrap();
     fs::write(target.join("src/scan/mod.rs"), "pub fn scan() {}").unwrap();
+    fs::create_dir(target.join("tests")).unwrap();
+    fs::write(target.join("tests/it.rs"), "").unwrap();
 
     let output = tmp.path().join("out");
-
-    let files = scan(&ScanConfig {
-        root: target.clone(),
-        extra_excluded: Vec::new(),
-    });
-    let nodes = build_code_nodes(&files);
-    write_wiki(&output, "project", &nodes).unwrap();
+    run_generation(&target, &output, "project");
 
     let index = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(
-        index.contains("# project"),
-        "index must contain project title"
-    );
-    assert!(index.contains("## Directories"));
+    assert!(index.contains("# project"));
+    assert!(index.contains("## Tech stack"));
+    assert!(index.contains("Rust"));
+    assert!(index.contains("## Overview"));
+    assert!(index.contains("overview/tech-stack.md"));
+    assert!(index.contains("development/index.md"));
     assert!(index.contains("directories/_root.md"));
-    assert!(index.contains("directories/src.md"));
-    assert!(index.contains("directories/src/scan.md"));
 
-    let root = fs::read_to_string(output.join("directories/_root.md")).unwrap();
-    assert!(root.contains("README.md"));
+    let tech = fs::read_to_string(output.join("overview/tech-stack.md")).unwrap();
+    assert!(tech.contains("# Tech stack"));
+    assert!(tech.contains("Cargo.toml"));
+    assert!(tech.contains("serde"));
 
-    let src = fs::read_to_string(output.join("directories/src.md")).unwrap();
-    assert!(src.contains("src/main.rs"));
+    let eps = fs::read_to_string(output.join("overview/entry-points.md")).unwrap();
+    assert!(eps.contains("src/main.rs"));
 
-    let scan_node = fs::read_to_string(output.join("directories/src/scan.md")).unwrap();
-    assert!(scan_node.contains("src/scan/mod.rs"));
+    let tests = fs::read_to_string(output.join("overview/tests.md")).unwrap();
+    assert!(tests.contains("tests"));
+
+    let dev = fs::read_to_string(output.join("development/index.md")).unwrap();
+    assert!(dev.contains("cargo build"));
 }
 
 #[test]
@@ -50,7 +78,6 @@ fn output_directory_inside_target_is_excluded_from_scan() {
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("code.rs"), "fn main() {}").unwrap();
 
-    // 既存の出力ディレクトリをターゲット内に配置し、前回生成物を置いておく
     let output = target.join("repo-wiki");
     fs::create_dir_all(&output).unwrap();
     fs::write(output.join("index.md"), "old").unwrap();
@@ -77,12 +104,7 @@ fn rerun_clears_previous_output() {
     fs::create_dir_all(&output).unwrap();
     fs::write(output.join("stale.md"), "old").unwrap();
 
-    let files = scan(&ScanConfig {
-        root: target.clone(),
-        extra_excluded: Vec::new(),
-    });
-    let nodes = build_code_nodes(&files);
-    write_wiki(&output, "project", &nodes).unwrap();
+    run_generation(&target, &output, "project");
 
     assert!(!output.join("stale.md").exists());
     assert!(output.join("index.md").exists());
