@@ -3,6 +3,7 @@ pub mod index;
 pub mod node;
 pub mod overview;
 pub mod paths;
+pub mod tags;
 pub mod unresolved;
 
 use std::fs;
@@ -79,6 +80,19 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         &development::render_development(out.tech_stack),
     )?;
 
+    // タグ索引
+    let tag_index = tags::build_tag_index(out.nodes);
+    for (tag, paths) in &tag_index.entries {
+        let path = tags::tag_page_path(tag);
+        let body = tags::render_tag_page(tag, paths, out.nodes);
+        let abs = output_root.join(&path);
+        if let Some(parent) = abs.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
+    }
+
     write_file(
         output_root,
         "_unresolved.md",
@@ -92,6 +106,7 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         out.entry_points,
         out.test_layout,
         out.unresolved,
+        &tag_index,
     );
     fs::write(output_root.join("index.md"), idx)
         .with_context(|| format!("failed to write index.md under {}", output_root.display()))?;

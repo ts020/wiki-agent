@@ -195,6 +195,46 @@ fn resolves_wikilinks_in_note_body_and_lists_unresolved() {
 }
 
 #[test]
+fn generates_tag_index_including_nested_tags() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("docs")).unwrap();
+
+    fs::write(
+        target.join("docs/login.md"),
+        "---\ntitle: Login\ntags: [auth/session, security]\n---\n",
+    )
+    .unwrap();
+    fs::write(
+        target.join("docs/perms.md"),
+        "---\ntitle: Perms\ntags: [auth, security]\n---\n",
+    )
+    .unwrap();
+
+    let output = tmp.path().join("out");
+    run_generation(&target, &output, "project");
+
+    // ネスト親タグにも集計される
+    let auth = fs::read_to_string(output.join("tags/auth.md")).unwrap();
+    assert!(auth.contains("Login"));
+    assert!(auth.contains("Perms"));
+
+    let auth_session = fs::read_to_string(output.join("tags/auth/session.md")).unwrap();
+    assert!(auth_session.contains("Login"));
+    assert!(!auth_session.contains("Perms"));
+
+    let security = fs::read_to_string(output.join("tags/security.md")).unwrap();
+    assert!(security.contains("Login"));
+    assert!(security.contains("Perms"));
+
+    // index からタグ索引へのリンク
+    let idx = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(idx.contains("## Tags"));
+    assert!(idx.contains("tags/auth.md"));
+    assert!(idx.contains("tags/auth/session.md"));
+}
+
+#[test]
 fn rerun_clears_previous_output() {
     let tmp = TempDir::new().unwrap();
     let target = tmp.path().join("project");

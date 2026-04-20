@@ -50,6 +50,42 @@ pub fn note_node_path(source_file: &Path) -> PathBuf {
     PathBuf::from("notes").join(sanitized)
 }
 
+/// 出力ルート相対の 2 パス間の相対リンク文字列を返す。
+/// `from` がファイルの場合、その親ディレクトリからの相対として扱う。
+pub fn relative_link(from: &Path, to: &Path) -> String {
+    let from_parent = from.parent().unwrap_or(Path::new(""));
+    let from_comps: Vec<_> = from_parent
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .collect();
+    let to_comps: Vec<_> = to
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .collect();
+    let mut common = 0;
+    while common < from_comps.len()
+        && common < to_comps.len()
+        && from_comps[common] == to_comps[common]
+    {
+        common += 1;
+    }
+    let up = from_comps.len() - common;
+    let mut parts: Vec<String> = Vec::new();
+    for _ in 0..up {
+        parts.push("..".to_string());
+    }
+    for c in &to_comps[common..] {
+        if let Component::Normal(s) = c {
+            parts.push(s.to_string_lossy().into_owned());
+        }
+    }
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
 /// 同名出力パスの衝突を末尾 `-N` で解消する。
 pub fn resolve_conflict(path: PathBuf, used: &mut HashSet<PathBuf>) -> PathBuf {
     if !used.contains(&path) {

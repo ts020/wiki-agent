@@ -1,5 +1,6 @@
 use std::fmt::Write;
 
+use super::tags::{TagIndex, tag_page_path};
 use crate::extract::{EntryPoint, TechStack, TestLayout};
 use crate::link::UnresolvedLink;
 use crate::model::{Node, NodeKind};
@@ -12,6 +13,7 @@ pub fn render_index(
     entry_points: &[EntryPoint],
     test_layout: &TestLayout,
     unresolved: &[UnresolvedLink],
+    tag_index: &TagIndex,
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(&mut s, "# {project_title}");
@@ -71,6 +73,21 @@ pub fn render_index(
         s.push('\n');
         for n in note_nodes {
             let _ = writeln!(&mut s, "- [{}]({})", n.title, n.output_path.display());
+        }
+        s.push('\n');
+    }
+
+    if !tag_index.entries.is_empty() {
+        let _ = writeln!(&mut s, "## Tags");
+        s.push('\n');
+        for tag in tag_index.entries.keys() {
+            let path = tag_page_path(tag);
+            let _ = writeln!(
+                &mut s,
+                "- [`{tag}`]({})（{} 件）",
+                path.display(),
+                tag_index.entries[tag].len()
+            );
         }
         s.push('\n');
     }
