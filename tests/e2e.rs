@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
 use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
+use repo_wiki::link::resolve_all;
 use repo_wiki::notes::ingest_notes;
 use repo_wiki::render::{WikiOutput, write_wiki};
 use repo_wiki::scan::{ScanConfig, scan};
@@ -21,6 +22,7 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
     let mut used = HashSet::new();
     let mut nodes = build_code_nodes_with(&files, target, &mut used);
     nodes.extend(build_note_nodes(notes, &mut used));
+    let unresolved = resolve_all(&mut nodes);
     write_wiki(
         output,
         &WikiOutput {
@@ -29,6 +31,7 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
             tech_stack: &tech_stack,
             entry_points: &entry_points,
             test_layout: &test_layout,
+            unresolved: &unresolved,
         },
     )
     .unwrap();
@@ -152,6 +155,43 @@ fn ingests_notes_with_frontmatter_and_directory_convention() {
     // wiki:false のファイルは除外
     assert!(!output.join("notes/src/skip.md").exists());
     assert!(!output.join("notes/src/ambient.md").exists());
+}
+
+#[test]
+fn resolves_wikilinks_in_note_body_and_lists_unresolved() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("docs")).unwrap();
+
+    fs::write(
+        target.join("docs/index.md"),
+        "links: [[architecture]], [[architecture#Goals]], [[architecture|plan]], ![[architecture]], [[missing]]",
+    )
+    .unwrap();
+    fs::write(
+        target.join("docs/architecture.md"),
+        "# Arch\n\n## Goals\n\nGoals.",
+    )
+    .unwrap();
+
+    let output = tmp.path().join("out");
+    run_generation(&target, &output, "project");
+
+    let idx = fs::read_to_string(output.join("notes/docs/index.md")).unwrap();
+    assert!(idx.contains("[architecture](architecture.md)"));
+    assert!(idx.contains("[architecture#Goals](architecture.md#goals)"));
+    assert!(idx.contains("[plan](architecture.md)"));
+    // embed は plain link に縮退する
+    assert!(idx.contains("[architecture](architecture.md)"));
+    // 未解決は原文 + (未解決)
+    assert!(idx.contains("[[missing]] (未解決)"));
+
+    let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
+    assert!(unresolved.contains("# Unresolved wikilinks"));
+    assert!(unresolved.contains("missing"));
+
+    let index_md = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(index_md.contains("Unresolved links"));
 }
 
 #[test]

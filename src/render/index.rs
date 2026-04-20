@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crate::extract::{EntryPoint, TechStack, TestLayout};
+use crate::link::UnresolvedLink;
 use crate::model::{Node, NodeKind};
 
 /// `index.md` の本文を生成する（FR-08）。
@@ -10,6 +11,7 @@ pub fn render_index(
     tech_stack: &TechStack,
     entry_points: &[EntryPoint],
     test_layout: &TestLayout,
+    unresolved: &[UnresolvedLink],
 ) -> String {
     let mut s = String::new();
     let _ = writeln!(&mut s, "# {project_title}");
@@ -70,6 +72,15 @@ pub fn render_index(
         for n in note_nodes {
             let _ = writeln!(&mut s, "- [{}]({})", n.title, n.output_path.display());
         }
+        s.push('\n');
+    }
+
+    if !unresolved.is_empty() {
+        let _ = writeln!(
+            &mut s,
+            "## Unresolved links\n\n未解決の wikilink が {} 件あります。詳細は [_unresolved.md](_unresolved.md)。",
+            unresolved.len()
+        );
         s.push('\n');
     }
     s

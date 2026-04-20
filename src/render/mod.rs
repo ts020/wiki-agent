@@ -3,6 +3,7 @@ pub mod index;
 pub mod node;
 pub mod overview;
 pub mod paths;
+pub mod unresolved;
 
 use std::fs;
 use std::path::Path;
@@ -10,6 +11,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::extract::{EntryPoint, TechStack, TestLayout};
+use crate::link::UnresolvedLink;
 use crate::model::Node;
 
 /// 生成物一式を出力ルートへ書き出す。毎回フル再生成（FR-03）。
@@ -19,6 +21,7 @@ pub struct WikiOutput<'a> {
     pub tech_stack: &'a TechStack,
     pub entry_points: &'a [EntryPoint],
     pub test_layout: &'a TestLayout,
+    pub unresolved: &'a [UnresolvedLink],
 }
 
 pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
@@ -76,12 +79,19 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         &development::render_development(out.tech_stack),
     )?;
 
+    write_file(
+        output_root,
+        "_unresolved.md",
+        &unresolved::render_unresolved(out.unresolved),
+    )?;
+
     let idx = index::render_index(
         out.project_title,
         out.nodes,
         out.tech_stack,
         out.entry_points,
         out.test_layout,
+        out.unresolved,
     );
     fs::write(output_root.join("index.md"), idx)
         .with_context(|| format!("failed to write index.md under {}", output_root.display()))?;
