@@ -14,7 +14,7 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
     let tech_stack = detect_tech_stack(&files, target);
     let entry_points = detect_entry_points(&files);
     let test_layout = detect_test_layout(&files);
-    let nodes = build_code_nodes(&files);
+    let nodes = build_code_nodes(&files, target);
     write_wiki(
         output,
         &WikiOutput {

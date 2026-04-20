@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     let entry_points = detect_entry_points(&files);
     let test_layout = detect_test_layout(&files);
 
-    let nodes = build_code_nodes(&files);
+    let nodes = build_code_nodes(&files, &target);
     write_wiki(
         &cli.output,
         &WikiOutput {

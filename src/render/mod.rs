@@ -43,6 +43,16 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         }
         fs::write(&path, node::render_node(n))
             .with_context(|| format!("failed to write {}", path.display()))?;
+
+        if let Some(op) = &n.symbols_overflow_path {
+            let abs = output_root.join(op);
+            if let Some(parent) = abs.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            fs::write(&abs, node::render_symbols_overflow(n))
+                .with_context(|| format!("failed to write {}", abs.display()))?;
+        }
     }
 
     write_file(
