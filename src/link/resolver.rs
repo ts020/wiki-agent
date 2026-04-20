@@ -103,6 +103,9 @@ mod tests {
             symbols: vec![],
             symbols_overflow_path: None,
             note: None,
+            related: vec![],
+            backlinks: vec![],
+            read_next: vec![],
         }
     }
 

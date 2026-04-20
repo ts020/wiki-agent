@@ -4,7 +4,10 @@ use std::path::Path;
 use crate::extract::{LocatedSymbol, SymbolKind, Visibility};
 use crate::model::{Node, NodeKind};
 
-pub fn render_node(node: &Node) -> String {
+pub fn render_node(
+    node: &Node,
+    titles: &std::collections::BTreeMap<std::path::PathBuf, String>,
+) -> String {
     let mut s = String::new();
     let _ = writeln!(&mut s, "# {}", node.title);
     s.push('\n');
@@ -13,7 +16,54 @@ pub fn render_node(node: &Node) -> String {
         NodeKind::CodeDerived => render_code_node(&mut s, node),
         NodeKind::NoteDerived => render_note_node(&mut s, node),
     }
+
+    render_relations(&mut s, node, titles);
     s
+}
+
+fn render_relations(
+    s: &mut String,
+    node: &Node,
+    titles: &std::collections::BTreeMap<std::path::PathBuf, String>,
+) {
+    if !node.related.is_empty() {
+        let _ = writeln!(s, "## Related");
+        s.push('\n');
+        for p in &node.related {
+            render_linked_item(s, &node.output_path, p, titles);
+        }
+        s.push('\n');
+    }
+    if !node.read_next.is_empty() {
+        let _ = writeln!(s, "## Read next");
+        s.push('\n');
+        for p in &node.read_next {
+            render_linked_item(s, &node.output_path, p, titles);
+        }
+        s.push('\n');
+    }
+    if !node.backlinks.is_empty() {
+        let _ = writeln!(s, "## Backlinks");
+        s.push('\n');
+        for p in &node.backlinks {
+            render_linked_item(s, &node.output_path, p, titles);
+        }
+        s.push('\n');
+    }
+}
+
+fn render_linked_item(
+    s: &mut String,
+    from: &std::path::Path,
+    to: &std::path::Path,
+    titles: &std::collections::BTreeMap<std::path::PathBuf, String>,
+) {
+    let title = titles
+        .get(to)
+        .cloned()
+        .unwrap_or_else(|| to.display().to_string());
+    let link = super::paths::relative_link(from, to);
+    let _ = writeln!(s, "- [{title}]({link})");
 }
 
 fn render_note_node(s: &mut String, node: &Node) {

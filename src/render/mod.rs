@@ -39,13 +39,19 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
     fs::create_dir_all(output_root)
         .with_context(|| format!("failed to create {}", output_root.display()))?;
 
+    let titles: std::collections::BTreeMap<std::path::PathBuf, String> = out
+        .nodes
+        .iter()
+        .map(|n| (n.output_path.clone(), n.title.clone()))
+        .collect();
+
     for n in out.nodes {
         let path = output_root.join(&n.output_path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        fs::write(&path, node::render_node(n))
+        fs::write(&path, node::render_node(n, &titles))
             .with_context(|| format!("failed to write {}", path.display()))?;
 
         if let Some(op) = &n.symbols_overflow_path {

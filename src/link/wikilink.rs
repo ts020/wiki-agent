@@ -63,16 +63,17 @@ fn parse_content(s: &str, embed: bool) -> WikiLink {
     }
 }
 
-/// 本文中の wikilink を解決した新しい本文と、未解決リンクを返す。
+/// 本文中の wikilink を解決した新しい本文、未解決一覧、解決済みリンクの
+/// ターゲット一覧を返す。ターゲット一覧は Phase 8 のリンクグラフ構築に使う。
 pub fn resolve_in(
     body: &str,
     from: &Path,
     resolver: &Resolver,
-    _source_dir: &Path,
-) -> (String, Vec<UnresolvedLink>) {
+) -> (String, Vec<UnresolvedLink>, Vec<std::path::PathBuf>) {
     let links = find_all(body);
     let mut out = body.to_string();
     let mut unresolved = Vec::new();
+    let mut edges = Vec::new();
 
     // 右側から置換して offset 崩れを防ぐ
     for (range, link) in links.into_iter().rev() {
@@ -82,6 +83,7 @@ pub fn resolve_in(
         });
 
         if let Some(target_path) = resolver.resolve(&link.target, from) {
+            edges.push(target_path.clone());
             let mut link_text = render_relative(from, &target_path);
             if let Some(h) = &link.heading {
                 link_text.push('#');
@@ -101,7 +103,7 @@ pub fn resolve_in(
             });
         }
     }
-    (out, unresolved)
+    (out, unresolved, edges)
 }
 
 /// `from` (出力相対パス) からみた `to` への相対リンクを返す。

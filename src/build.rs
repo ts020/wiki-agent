@@ -69,6 +69,9 @@ fn build_code_nodes_inner(
             symbols,
             symbols_overflow_path: overflow_path,
             note: None,
+            related: Vec::new(),
+            backlinks: Vec::new(),
+            read_next: Vec::new(),
         });
     }
     nodes
@@ -89,6 +92,9 @@ pub fn build_note_nodes(notes: Vec<NoteData>, used: &mut HashSet<PathBuf>) -> Ve
             symbols: Vec::new(),
             symbols_overflow_path: None,
             note: Some(data),
+            related: Vec::new(),
+            backlinks: Vec::new(),
+            read_next: Vec::new(),
         });
     }
     nodes

@@ -28,6 +28,11 @@ pub struct Node {
 
     // --- ノート由来ノード専用（コード由来時は None） ---
     pub note: Option<NoteData>,
+
+    // --- Phase 8 で設定される関連リンク群（いずれもこのノード出力パスへの相対にするのは render 層） ---
+    pub related: Vec<PathBuf>,
+    pub backlinks: Vec<PathBuf>,
+    pub read_next: Vec<PathBuf>,
 }
 
 /// 1 ノードあたりのシンボル列挙上限（FR-07）。超過時は `_symbols.md` に退避する。

@@ -6,6 +6,8 @@ use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
 use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
 use repo_wiki::link::resolve_all;
 use repo_wiki::notes::ingest_notes;
+use repo_wiki::relations::compute_relations;
+use repo_wiki::render::tags::build_tag_index;
 use repo_wiki::render::{WikiOutput, write_wiki};
 use repo_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
@@ -22,7 +24,9 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
     let mut used = HashSet::new();
     let mut nodes = build_code_nodes_with(&files, target, &mut used);
     nodes.extend(build_note_nodes(notes, &mut used));
-    let unresolved = resolve_all(&mut nodes);
+    let (unresolved, graph) = resolve_all(&mut nodes);
+    let tag_index = build_tag_index(&nodes);
+    compute_relations(&mut nodes, &graph, &tag_index);
     write_wiki(
         output,
         &WikiOutput {
@@ -232,6 +236,49 @@ fn generates_tag_index_including_nested_tags() {
     assert!(idx.contains("## Tags"));
     assert!(idx.contains("tags/auth.md"));
     assert!(idx.contains("tags/auth/session.md"));
+}
+
+#[test]
+fn emits_related_backlinks_and_read_next_sections() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("docs")).unwrap();
+
+    fs::write(
+        target.join("docs/alpha.md"),
+        "---\ntitle: Alpha\ntags: [shared]\n---\n\nSee [[beta]].",
+    )
+    .unwrap();
+    fs::write(
+        target.join("docs/beta.md"),
+        "---\ntitle: Beta\ntags: [shared]\nrelated: [alpha]\n---\n",
+    )
+    .unwrap();
+    fs::write(
+        target.join("docs/gamma.md"),
+        "---\ntitle: Gamma\ntags: [shared]\n---\n",
+    )
+    .unwrap();
+
+    let output = tmp.path().join("out");
+    run_generation(&target, &output, "project");
+
+    let alpha = fs::read_to_string(output.join("notes/docs/alpha.md")).unwrap();
+    // alpha -> beta の wikilink があるので Related に beta
+    assert!(alpha.contains("## Related"));
+    assert!(alpha.contains("Beta"));
+    // beta -> alpha の related があるので Backlinks に beta
+    assert!(alpha.contains("## Backlinks"));
+    // 同タグの gamma が Read next に出る
+    assert!(alpha.contains("## Read next"));
+    assert!(alpha.contains("Gamma"));
+
+    let beta = fs::read_to_string(output.join("notes/docs/beta.md")).unwrap();
+    // frontmatter.related で alpha を参照するので forward link が graph に載る
+    assert!(beta.contains("## Related"));
+    assert!(beta.contains("Alpha"));
+    // alpha -> beta の backward link
+    assert!(beta.contains("## Backlinks"));
 }
 
 #[test]
