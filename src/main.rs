@@ -2,6 +2,8 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
+use repo_wiki::scan::{ScanConfig, scan};
+
 #[derive(Parser, Debug)]
 #[command(
     name = "repo-wiki",
@@ -27,9 +29,14 @@ fn main() {
     let cli = Cli::parse();
     let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
 
+    let files = scan(&ScanConfig {
+        root: target.clone(),
+    });
+
     tracing::info!(
         target = %target.display(),
         output = %cli.output.display(),
-        "repo-wiki skeleton (Phase 0): walker / renderer not yet implemented"
+        files = files.len(),
+        "scan complete (renderer not yet implemented)"
     );
 }
