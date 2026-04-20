@@ -2,6 +2,8 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
+use repo_wiki::build::build_code_nodes;
+use repo_wiki::render::write_wiki;
 use repo_wiki::scan::{ScanConfig, scan};
 
 #[derive(Parser, Debug)]
@@ -19,7 +21,7 @@ struct Cli {
     output: PathBuf,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -29,14 +31,27 @@ fn main() {
     let cli = Cli::parse();
     let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
 
+    let output_abs = std::path::absolute(&cli.output).unwrap_or_else(|_| cli.output.clone());
     let files = scan(&ScanConfig {
         root: target.clone(),
+        extra_excluded: vec![output_abs],
     });
+
+    let project_title = target
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "repo-wiki".to_string());
+
+    let nodes = build_code_nodes(&files);
+    write_wiki(&cli.output, &project_title, &nodes)?;
 
     tracing::info!(
         target = %target.display(),
         output = %cli.output.display(),
         files = files.len(),
-        "scan complete (renderer not yet implemented)"
+        nodes = nodes.len(),
+        "wiki generation complete"
     );
+    Ok(())
 }

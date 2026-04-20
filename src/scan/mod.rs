@@ -14,6 +14,8 @@ const WIKI_HIDDEN_DIR: &str = ".wiki";
 
 pub struct ScanConfig {
     pub root: PathBuf,
+    /// 追加で除外したい絶対パス（出力先ディレクトリなど）
+    pub extra_excluded: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,10 +30,16 @@ pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
     let mut warned_count = false;
     let mut warned_depth = false;
 
+    let extra_excluded: Vec<PathBuf> = config
+        .extra_excluded
+        .iter()
+        .filter_map(|p| std::path::absolute(p).ok())
+        .collect();
+
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| !should_prune(e));
+        .filter_entry(|e| !should_prune(e, &extra_excluded));
 
     for entry in walker {
         let entry = match entry {
@@ -99,9 +107,15 @@ pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
     files
 }
 
-fn should_prune(entry: &DirEntry) -> bool {
+fn should_prune(entry: &DirEntry, extra_excluded: &[PathBuf]) -> bool {
     if entry.depth() == 0 {
         return false;
+    }
+    if entry.file_type().is_dir()
+        && let Ok(abs) = std::path::absolute(entry.path())
+        && extra_excluded.contains(&abs)
+    {
+        return true;
     }
     let Some(name) = entry.file_name().to_str() else {
         return false;

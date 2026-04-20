@@ -22,6 +22,7 @@ fn excludes_fixed_directories() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     assert_eq!(rel_names(&files), vec![PathBuf::from("keep.txt")]);
 }
@@ -39,6 +40,7 @@ fn excludes_hidden_dirs_except_wiki() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from(".wiki/y.txt")));
@@ -56,6 +58,7 @@ fn skips_files_larger_than_1_mib() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("small.txt")));
@@ -72,6 +75,7 @@ fn skips_files_with_null_byte() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("text.txt")));
@@ -89,6 +93,7 @@ fn skips_invalid_utf8() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("good.txt")));
@@ -106,9 +111,11 @@ fn returns_deterministic_order() {
 
     let files1 = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let files2 = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     assert_eq!(files1, files2);
     assert_eq!(
@@ -133,6 +140,7 @@ fn scans_nested_directories() {
 
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
+        extra_excluded: Vec::new(),
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("shallow.txt")));
