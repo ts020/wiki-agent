@@ -59,5 +59,18 @@ pub fn render_index(
         }
     }
     s.push('\n');
+
+    let note_nodes: Vec<&Node> = nodes
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::NoteDerived))
+        .collect();
+    if !note_nodes.is_empty() {
+        let _ = writeln!(&mut s, "## Notes");
+        s.push('\n');
+        for n in note_nodes {
+            let _ = writeln!(&mut s, "- [{}]({})", n.title, n.output_path.display());
+        }
+        s.push('\n');
+    }
     s
 }

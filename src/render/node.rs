@@ -11,8 +11,58 @@ pub fn render_node(node: &Node) -> String {
 
     match node.kind {
         NodeKind::CodeDerived => render_code_node(&mut s, node),
+        NodeKind::NoteDerived => render_note_node(&mut s, node),
     }
     s
+}
+
+fn render_note_node(s: &mut String, node: &Node) {
+    let Some(data) = &node.note else {
+        return;
+    };
+    let _ = writeln!(s, "## Summary");
+    s.push('\n');
+    let summary = data
+        .frontmatter
+        .summary
+        .clone()
+        .or_else(|| data.first_paragraph.clone())
+        .unwrap_or_else(|| "_(no summary)_".to_string());
+    let _ = writeln!(s, "{summary}");
+    s.push('\n');
+
+    let _ = writeln!(s, "## Key files");
+    s.push('\n');
+    let _ = writeln!(s, "- `{}`", data.source_file.display());
+    s.push('\n');
+
+    let _ = writeln!(s, "## Structure");
+    s.push('\n');
+    if data.headings.is_empty() {
+        let _ = writeln!(s, "_(no headings)_");
+    } else {
+        for h in &data.headings {
+            let indent = "  ".repeat(h.level.saturating_sub(1) as usize);
+            let _ = writeln!(s, "{indent}- {}", h.text);
+        }
+    }
+    s.push('\n');
+
+    if !data.frontmatter.tags.is_empty() {
+        let _ = writeln!(s, "## Tags");
+        s.push('\n');
+        for t in &data.frontmatter.tags {
+            let _ = writeln!(s, "- {t}");
+        }
+        s.push('\n');
+    }
+
+    let _ = writeln!(s, "## Content");
+    s.push('\n');
+    s.push_str(&data.body);
+    if !data.body.ends_with('\n') {
+        s.push('\n');
+    }
 }
 
 /// 100件超過時に生成する `_symbols.md` の本文を生成する。

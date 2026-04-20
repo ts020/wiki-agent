@@ -42,6 +42,14 @@ pub fn code_node_path(source_dir: &Path) -> PathBuf {
     out
 }
 
+/// ノート由来ノードの出力パスを算出する。
+/// - `README.md` → `notes/README.md`
+/// - `docs/foo.md` → `notes/docs/foo.md`
+pub fn note_node_path(source_file: &Path) -> PathBuf {
+    let sanitized = sanitize_path(source_file);
+    PathBuf::from("notes").join(sanitized)
+}
+
 /// 同名出力パスの衝突を末尾 `-N` で解消する。
 pub fn resolve_conflict(path: PathBuf, used: &mut HashSet<PathBuf>) -> PathBuf {
     if !used.contains(&path) {
@@ -106,6 +114,30 @@ mod tests {
         assert_eq!(
             code_node_path(Path::new("a:b/c")),
             PathBuf::from("directories/a_b/c.md")
+        );
+    }
+
+    #[test]
+    fn note_path_for_root_readme() {
+        assert_eq!(
+            note_node_path(Path::new("README.md")),
+            PathBuf::from("notes/README.md")
+        );
+    }
+
+    #[test]
+    fn note_path_preserves_nested_structure() {
+        assert_eq!(
+            note_node_path(Path::new("docs/a/b.md")),
+            PathBuf::from("notes/docs/a/b.md")
+        );
+    }
+
+    #[test]
+    fn note_path_sanitizes_forbidden_chars() {
+        assert_eq!(
+            note_node_path(Path::new("docs/a:b.md")),
+            PathBuf::from("notes/docs/a_b.md")
         );
     }
 

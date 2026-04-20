@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::extract::{extract_symbols, sort_symbols};
 use crate::model::{Node, NodeKind, SYMBOL_NODE_LIMIT};
-use crate::render::paths::{code_node_path, resolve_conflict};
+use crate::notes::NoteData;
+use crate::render::paths::{code_node_path, note_node_path, resolve_conflict};
 use crate::scan::ScannedFile;
 
 /// 走査済みファイル集合からコード由来ノードを組み立てる。
@@ -11,7 +12,24 @@ use crate::scan::ScannedFile;
 /// - 直接ファイルを含むディレクトリごとに 1 ノード生成する。
 /// - ルート（relative parent が空）に置かれたファイルは `_root` ノードに集約。
 /// - 各ノード内でシンボルを抽出し、閾値超過時は退避パスを付与する。
+pub fn build_code_nodes_with(
+    scanned: &[ScannedFile],
+    target_root: &Path,
+    used: &mut HashSet<PathBuf>,
+) -> Vec<Node> {
+    build_code_nodes_inner(scanned, target_root, used)
+}
+
 pub fn build_code_nodes(scanned: &[ScannedFile], target_root: &Path) -> Vec<Node> {
+    let mut used = HashSet::new();
+    build_code_nodes_inner(scanned, target_root, &mut used)
+}
+
+fn build_code_nodes_inner(
+    scanned: &[ScannedFile],
+    target_root: &Path,
+    used: &mut HashSet<PathBuf>,
+) -> Vec<Node> {
     let mut dirs: BTreeMap<PathBuf, Vec<ScannedFile>> = BTreeMap::new();
     for f in scanned {
         let parent = f
@@ -26,12 +44,11 @@ pub fn build_code_nodes(scanned: &[ScannedFile], target_root: &Path) -> Vec<Node
         dirs.insert(PathBuf::new(), vec![]);
     }
 
-    let mut used: HashSet<PathBuf> = HashSet::new();
     let mut nodes = Vec::with_capacity(dirs.len());
     for (dir, mut files) in dirs {
         files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
         let title = node_title(&dir);
-        let output = resolve_conflict(code_node_path(&dir), &mut used);
+        let output = resolve_conflict(code_node_path(&dir), used);
 
         let mut symbols = extract_symbols(&files, target_root);
         sort_symbols(&mut symbols);
@@ -51,9 +68,44 @@ pub fn build_code_nodes(scanned: &[ScannedFile], target_root: &Path) -> Vec<Node
             key_files,
             symbols,
             symbols_overflow_path: overflow_path,
+            note: None,
         });
     }
     nodes
+}
+
+/// ノート由来ノードを組み立てる。
+pub fn build_note_nodes(notes: Vec<NoteData>, used: &mut HashSet<PathBuf>) -> Vec<Node> {
+    let mut nodes = Vec::with_capacity(notes.len());
+    for data in notes {
+        let output = resolve_conflict(note_node_path(&data.source_file), used);
+        let title = note_title(&data);
+        nodes.push(Node {
+            kind: NodeKind::NoteDerived,
+            output_path: output,
+            title,
+            source_dir: PathBuf::new(),
+            key_files: Vec::new(),
+            symbols: Vec::new(),
+            symbols_overflow_path: None,
+            note: Some(data),
+        });
+    }
+    nodes
+}
+
+fn note_title(data: &NoteData) -> String {
+    if let Some(t) = &data.frontmatter.title {
+        return t.clone();
+    }
+    if let Some(h) = data.headings.iter().find(|h| h.level == 1) {
+        return h.text.clone();
+    }
+    data.source_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(String::from)
+        .unwrap_or_else(|| data.source_file.display().to_string())
 }
 
 fn node_title(dir: &Path) -> String {

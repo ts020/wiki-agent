@@ -1,7 +1,10 @@
 use std::fs;
 
-use repo_wiki::build::build_code_nodes;
+use std::collections::HashSet;
+
+use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
 use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
+use repo_wiki::notes::ingest_notes;
 use repo_wiki::render::{WikiOutput, write_wiki};
 use repo_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
@@ -14,7 +17,10 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
     let tech_stack = detect_tech_stack(&files, target);
     let entry_points = detect_entry_points(&files);
     let test_layout = detect_test_layout(&files);
-    let nodes = build_code_nodes(&files, target);
+    let notes = ingest_notes(&files, target);
+    let mut used = HashSet::new();
+    let mut nodes = build_code_nodes_with(&files, target, &mut used);
+    nodes.extend(build_note_nodes(notes, &mut used));
     write_wiki(
         output,
         &WikiOutput {
@@ -91,6 +97,61 @@ fn output_directory_inside_target_is_excluded_from_scan() {
     let paths: Vec<_> = files.iter().map(|f| f.relative_path.clone()).collect();
     assert!(paths.contains(&std::path::PathBuf::from("code.rs")));
     assert!(!paths.iter().any(|p| p.starts_with("repo-wiki")));
+}
+
+#[test]
+fn ingests_notes_with_frontmatter_and_directory_convention() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("docs")).unwrap();
+    fs::create_dir_all(target.join("src")).unwrap();
+
+    fs::write(target.join("README.md"), "# Project\n\nRoot readme.").unwrap();
+    fs::write(
+        target.join("docs/architecture.md"),
+        "---\ntitle: アーキテクチャ\ntags: [design]\n---\n\n# Overview\n\n本文。\n\n## Goals\n\n目標。",
+    )
+    .unwrap();
+    fs::write(
+        target.join("src/notes.md"),
+        "---\nwiki: true\ntitle: Inline note\n---\n\nInline.",
+    )
+    .unwrap();
+    fs::write(
+        target.join("src/skip.md"),
+        "---\nwiki: false\n---\nshould skip",
+    )
+    .unwrap();
+    fs::write(target.join("src/ambient.md"), "# just sits here").unwrap(); // 取り込まれない
+
+    let output = tmp.path().join("out");
+    run_generation(&target, &output, "project");
+
+    let index = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(index.contains("## Notes"));
+    assert!(index.contains("notes/README.md"));
+    assert!(index.contains("アーキテクチャ"));
+    assert!(index.contains("Inline note"));
+    assert!(!index.contains("ambient"));
+    assert!(!index.contains("should skip"));
+
+    // README の body が Content セクションに出ている
+    let readme = fs::read_to_string(output.join("notes/README.md")).unwrap();
+    assert!(readme.contains("## Content"));
+    assert!(readme.contains("Root readme."));
+
+    // docs/architecture.md は見出しツリーが Structure に出る
+    let arch = fs::read_to_string(output.join("notes/docs/architecture.md")).unwrap();
+    assert!(arch.contains("# アーキテクチャ"));
+    assert!(arch.contains("Overview"));
+    assert!(arch.contains("Goals"));
+
+    // wiki:true の外部 md も取り込まれる
+    assert!(output.join("notes/src/notes.md").exists());
+
+    // wiki:false のファイルは除外
+    assert!(!output.join("notes/src/skip.md").exists());
+    assert!(!output.join("notes/src/ambient.md").exists());
 }
 
 #[test]
