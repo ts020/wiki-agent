@@ -11,10 +11,12 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{Node, iter_pages};
 
-/// ノード間リンクの双方向グラフ。
+/// ページ間リンクの双方向グラフ。
+/// - forward: 参照元ページ → 参照先ページ群。**本文出現順**を保持（FR-09）。
+/// - backward: 参照先ページ → 参照元ページ群。**出力パス昇順**で安定（FR-10）。
 #[derive(Debug, Default)]
 pub struct LinkGraph {
-    pub forward: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+    pub forward: BTreeMap<PathBuf, Vec<PathBuf>>,
     pub backward: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
 }
 
@@ -23,10 +25,10 @@ impl LinkGraph {
         if from == to {
             return;
         }
-        self.forward
-            .entry(from.to_path_buf())
-            .or_default()
-            .insert(to.to_path_buf());
+        let list = self.forward.entry(from.to_path_buf()).or_default();
+        if !list.iter().any(|p| p == to) {
+            list.push(to.to_path_buf());
+        }
         self.backward
             .entry(to.to_path_buf())
             .or_default()
@@ -34,10 +36,7 @@ impl LinkGraph {
     }
 
     pub fn forward_of(&self, path: &Path) -> Vec<PathBuf> {
-        self.forward
-            .get(path)
-            .map(|s| s.iter().cloned().collect())
-            .unwrap_or_default()
+        self.forward.get(path).cloned().unwrap_or_default()
     }
 
     pub fn backward_of(&self, path: &Path) -> Vec<PathBuf> {

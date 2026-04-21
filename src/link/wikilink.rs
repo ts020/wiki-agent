@@ -103,8 +103,10 @@ pub fn resolve_in(
                 out.replace_range(range, &format!("[{display}]({link_text})"));
             }
             Resolution::Missing => {
+                // FR-13: 埋め込み記法 `![[Foo]]` も未解決時は `[[Foo]] (未解決)` に縮退
                 let original = &body[range.clone()];
-                let replacement = format!("{original} (未解決)");
+                let bare = original.strip_prefix('!').unwrap_or(original);
+                let replacement = format!("{bare} (未解決)");
                 out.replace_range(range, &replacement);
                 unresolved.push(UnresolvedLink {
                     source: from.to_path_buf(),

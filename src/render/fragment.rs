@@ -96,34 +96,32 @@ fn render_shell(
     titles: &BTreeMap<PathBuf, String>,
     resolver: &Resolver,
 ) -> String {
-    let (preface_raw, h2_slug, children_count) = match &node.fragments.fragments[idx] {
-        Fragment::Shell {
-            preface,
-            slug,
-            children,
-            ..
-        } => (preface.as_str(), slug.as_str(), children.len()),
+    let preface_raw = match &node.fragments.fragments[idx] {
+        Fragment::Shell { preface, .. } => preface.as_str(),
         _ => unreachable!("render_shell called on non-Shell fragment"),
     };
     let (preface, _, _) = wikilink::resolve_in(preface_raw, page_path, &node.output_path, resolver);
     let head = build_shell_nav(node, page_path);
-    let mut body = preface;
+    let children_section = build_shell_children_section(node, idx, page_path);
+    let backlinks = build_backlinks_section(node, page_path, titles);
+    assemble(Some(head), preface, &[children_section, backlinks])
+}
 
-    // 子断片一覧
-    ensure_trailing_newline(&mut body);
-    body.push_str("\n## Fragments\n\n");
-    for cidx in 0..children_count {
-        let child = match &node.fragments.fragments[idx] {
-            Fragment::Shell { children, .. } => &children[cidx],
-            _ => unreachable!(),
-        };
+fn build_shell_children_section(node: &Node, idx: usize, page_path: &Path) -> String {
+    let (children, h2_slug) = match &node.fragments.fragments[idx] {
+        Fragment::Shell { children, slug, .. } => (children, slug.as_str()),
+        _ => return String::new(),
+    };
+    if children.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from("## Fragments\n\n");
+    for child in children {
         let target = h3_leaf_path(&node.entry_dir, h2_slug, &child.slug);
         let link = relative_link(page_path, &target);
-        let _ = writeln!(&mut body, "- [{}]({link})", child.heading);
+        let _ = writeln!(&mut s, "- [{}]({link})", child.heading);
     }
-
-    let backlinks = build_backlinks_section(node, page_path, titles);
-    assemble(Some(head), body, &[backlinks])
+    s
 }
 
 fn render_h3_leaf(

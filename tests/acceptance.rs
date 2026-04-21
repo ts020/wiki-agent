@@ -397,6 +397,106 @@ fn single_h2_note_splits_entry_and_one_fragment() {
     assert!(!only.contains("Next:"));
 }
 
+/// AC-12: ルート index.md のサマリに各カウントが出る
+#[test]
+fn root_index_summary_counts() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    // ノート 2 枚・h2 は合計 3 個
+    fs::write(
+        target.join("a.md"),
+        "# A\n\n## Alpha\n\na\n\n## Bravo\n\nb\n",
+    )
+    .unwrap();
+    fs::write(target.join("b.md"), "# B\n\n## Charlie\n\nc\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let idx = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(
+        idx.contains("- Notes: 2"),
+        "Notes カウントが出ること: {idx}"
+    );
+    assert!(
+        idx.contains("- Fragments: 3"),
+        "Fragments カウント（h2 断片）が出ること: {idx}"
+    );
+    assert!(idx.contains("- Tags:"));
+    assert!(idx.contains("- Unresolved links:"));
+}
+
+/// AC-17: h3 再分割の殻ページと子断片ページ
+#[test]
+fn h3_resplit_produces_shell_and_children() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    let mut body = String::from("# N\n\n## Design\n\n");
+    body.push_str("### Alpha\n");
+    for i in 0..160 {
+        body.push_str(&format!("a{i}\n"));
+    }
+    body.push_str("### Bravo\n");
+    for i in 0..160 {
+        body.push_str(&format!("b{i}\n"));
+    }
+    fs::write(target.join("n.md"), body).unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    // 殻ページと子断片
+    assert!(output.join("fragments/n/design/index.md").exists());
+    assert!(output.join("fragments/n/design/alpha.md").exists());
+    assert!(output.join("fragments/n/design/bravo.md").exists());
+    // 通常 h2 の `fragments/n/design.md` は存在しない
+    assert!(!output.join("fragments/n/design.md").exists());
+
+    // 入口ページの Fragments は殻 index.md を指す
+    let entry = fs::read_to_string(output.join("fragments/n/index.md")).unwrap();
+    assert!(
+        entry.contains("design/index.md"),
+        "入口は殻 index.md を指す: {entry}"
+    );
+
+    // 殻ページに Parent のみ、子断片一覧、Prev/Next 無し
+    let shell = fs::read_to_string(output.join("fragments/n/design/index.md")).unwrap();
+    assert!(shell.contains("Parent:"));
+    assert!(!shell.contains("Prev:"));
+    assert!(!shell.contains("Next:"));
+    assert!(shell.contains("## Fragments"));
+    assert!(shell.contains("alpha.md"));
+    assert!(shell.contains("bravo.md"));
+
+    // 子断片に Parent = 殻ページ、Prev/Next
+    let bravo = fs::read_to_string(output.join("fragments/n/design/bravo.md")).unwrap();
+    assert!(bravo.contains("Parent: [Design](index.md)"));
+    assert!(bravo.contains("Prev: [Alpha](alpha.md)"));
+    assert!(!bravo.contains("Next:"));
+}
+
+/// AC-11: Backlinks が参照元ページ出力相対パス昇順で並ぶ
+#[test]
+fn backlinks_ordered_by_source_path() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("a")).unwrap();
+    fs::create_dir_all(target.join("b")).unwrap();
+    fs::write(target.join("a/one.md"), "see [[target]]").unwrap();
+    fs::write(target.join("b/two.md"), "see [[target]]").unwrap();
+    fs::write(target.join("target.md"), "# Target").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let t = fs::read_to_string(output.join("fragments/target/index.md")).unwrap();
+    let a_idx = t.find("a/one").unwrap();
+    let b_idx = t.find("b/two").unwrap();
+    assert!(a_idx < b_idx, "a/one が b/two より先に来る: {t}");
+}
+
 /// AC-20: h2 が無いノートは入口のみで、断片ページは生成されない
 #[test]
 fn no_h2_note_has_entry_only() {
