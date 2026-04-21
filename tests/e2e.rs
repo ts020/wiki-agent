@@ -41,7 +41,7 @@ fn single_file_input_generates_wiki() {
     run(&[note.as_os_str(), "--out".as_ref(), out.as_os_str()]);
 
     assert!(out.join("index.md").exists());
-    assert!(out.join("notes/memo.md").exists());
+    assert!(out.join("fragments/memo/index.md").exists());
 }
 
 #[test]
@@ -62,9 +62,9 @@ fn directory_recursive_includes_nested_and_excludes_node_modules() {
         out.as_os_str(),
     ]);
 
-    assert!(out.join("notes/a.md").exists());
-    assert!(out.join("notes/deep/b.md").exists());
-    assert!(!out.join("notes/node_modules").exists());
+    assert!(out.join("fragments/a/index.md").exists());
+    assert!(out.join("fragments/deep/b/index.md").exists());
+    assert!(!out.join("fragments/node_modules").exists());
 }
 
 #[test]
@@ -126,6 +126,6 @@ fn wiki_false_frontmatter_excludes_note() {
         out.as_os_str(),
     ]);
 
-    assert!(out.join("notes/keep.md").exists());
-    assert!(!out.join("notes/skip.md").exists());
+    assert!(out.join("fragments/keep/index.md").exists());
+    assert!(!out.join("fragments/skip/index.md").exists());
 }
