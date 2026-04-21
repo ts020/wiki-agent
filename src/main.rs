@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
     let mut used_paths = std::collections::HashSet::new();
     let mut nodes = build_code_nodes_with(&files, &target, &mut used_paths);
     nodes.extend(build_note_nodes(notes_data, &mut used_paths));
-    let (unresolved, graph) = resolve_all(&mut nodes);
+    let (unresolved, graph) = resolve_all(&nodes);
     let tag_index = build_tag_index(&nodes);
     compute_relations(&mut nodes, &graph, &tag_index);
     write_wiki(

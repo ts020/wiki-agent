@@ -22,14 +22,17 @@ cargo run -- path/to/repo --output path/to/wiki
 repo-wiki/
 ├── index.md              # プロジェクト概要と全ノードへの導線
 ├── overview/             # 技術スタック / エントリポイント / テスト構造
-├── directories/          # コード由来ノード（ディレクトリ単位）
-├── notes/                # 手書き md ノート由来
-├── tags/                 # タグ索引（ネストタグ対応）
 ├── development/          # ビルド/テストコマンド案内
+├── code-nodes/           # コード由来ノード（ディレクトリ単位、機械生成）
+├── note-index/           # 手書き md の索引ページ（機械生成、本文なし）
+├── imported/             # 手書き md の本文コピー（wikilink 解決のみ）
+├── tags/                 # タグ索引（ネストタグ対応）
 └── _unresolved.md        # 未解決 wikilink 一覧
 ```
 
-各ノードは Summary / Key files / Structure / Related / Read next / Backlinks を含む。
+- **`code-nodes/` と `note-index/`** は機械生成。Summary / Key files / Structure / Related / Read next / Backlinks を含む
+- **`imported/`** は原本コピー。`[[wikilink]]` のみ Markdown リンクに変換、それ以外は無改変
+- `repo-wiki/` を削除しても原本 (`imported/`) 以外の機械生成物は再実行で再構築できる
 
 ## 手書き md の取り込みルール
 

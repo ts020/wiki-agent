@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::extract::{extract_symbols, sort_symbols};
 use crate::model::{Node, NodeKind, SYMBOL_NODE_LIMIT};
 use crate::notes::NoteData;
-use crate::render::paths::{code_node_path, note_node_path, resolve_conflict};
+use crate::render::paths::{code_node_path, imported_note_path, note_index_path, resolve_conflict};
 use crate::scan::ScannedFile;
 
 /// 走査済みファイル集合からコード由来ノードを組み立てる。
@@ -69,6 +69,7 @@ fn build_code_nodes_inner(
             symbols,
             symbols_overflow_path: overflow_path,
             note: None,
+            content_path: None,
             related: Vec::new(),
             backlinks: Vec::new(),
             read_next: Vec::new(),
@@ -77,21 +78,23 @@ fn build_code_nodes_inner(
     nodes
 }
 
-/// ノート由来ノードを組み立てる。
+/// ノート由来ノードを組み立てる。索引ページと原本コピーの両方の出力パスを持たせる。
 pub fn build_note_nodes(notes: Vec<NoteData>, used: &mut HashSet<PathBuf>) -> Vec<Node> {
     let mut nodes = Vec::with_capacity(notes.len());
     for data in notes {
-        let output = resolve_conflict(note_node_path(&data.source_file), used);
+        let index_output = resolve_conflict(note_index_path(&data.source_file), used);
+        let content_output = resolve_conflict(imported_note_path(&data.source_file), used);
         let title = note_title(&data);
         nodes.push(Node {
             kind: NodeKind::NoteDerived,
-            output_path: output,
+            output_path: index_output,
             title,
             source_dir: PathBuf::new(),
             key_files: Vec::new(),
             symbols: Vec::new(),
             symbols_overflow_path: None,
             note: Some(data),
+            content_path: Some(content_output),
             related: Vec::new(),
             backlinks: Vec::new(),
             read_next: Vec::new(),
@@ -122,8 +125,8 @@ fn node_title(dir: &Path) -> String {
     }
 }
 
-/// ノード出力パス `directories/<p>.md` に対応する overflow パス
-/// `directories/<p>/_symbols.md` を算出する。
+/// ノード出力パス `code-nodes/<p>.md` に対応する overflow パス
+/// `code-nodes/<p>/_symbols.md` を算出する。
 fn overflow_output_path(node_path: &Path) -> PathBuf {
     let stem = node_path
         .file_stem()
@@ -170,22 +173,22 @@ mod tests {
         let nodes = build_code_nodes(&[], Path::new("/nonexistent"));
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].title, "/");
-        assert_eq!(nodes[0].output_path, PathBuf::from("directories/_root.md"));
+        assert_eq!(nodes[0].output_path, PathBuf::from("code-nodes/_root.md"));
     }
 
     #[test]
     fn overflow_path_is_sibling_of_node() {
         assert_eq!(
-            overflow_output_path(Path::new("directories/src.md")),
-            PathBuf::from("directories/src/_symbols.md")
+            overflow_output_path(Path::new("code-nodes/src.md")),
+            PathBuf::from("code-nodes/src/_symbols.md")
         );
         assert_eq!(
-            overflow_output_path(Path::new("directories/_root.md")),
-            PathBuf::from("directories/_root/_symbols.md")
+            overflow_output_path(Path::new("code-nodes/_root.md")),
+            PathBuf::from("code-nodes/_root/_symbols.md")
         );
         assert_eq!(
-            overflow_output_path(Path::new("directories/src/scan.md")),
-            PathBuf::from("directories/src/scan/_symbols.md")
+            overflow_output_path(Path::new("code-nodes/src/scan.md")),
+            PathBuf::from("code-nodes/src/scan/_symbols.md")
         );
     }
 }

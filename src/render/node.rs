@@ -107,12 +107,33 @@ fn render_note_node(s: &mut String, node: &Node) {
         s.push('\n');
     }
 
-    let _ = writeln!(s, "## Content");
-    s.push('\n');
-    s.push_str(&data.body);
-    if !data.body.ends_with('\n') {
+    if let Some(content_path) = &node.content_path {
+        let link = super::paths::relative_link(&node.output_path, content_path);
+        let _ = writeln!(s, "## Original");
+        s.push('\n');
+        let _ = writeln!(s, "- [原本を読む]({link})");
         s.push('\n');
     }
+}
+
+/// 原本コピー（`imported/<rel>`）用の本文を生成する。wikilink は
+/// `content_resolver` で別ノートの `imported/` パスに解決される。
+/// 本文は原本そのまま（見出しは重複させない）。末尾に索引ページへの
+/// リンクを付与する。
+pub fn render_imported(node: &Node, content_resolver: &crate::link::Resolver) -> Option<String> {
+    let data = node.note.as_ref()?;
+    let content_path = node.content_path.as_ref()?;
+    let (body, _unresolved, _edges) =
+        crate::link::wikilink::resolve_in(&data.body, content_path, content_resolver);
+
+    let mut s = body;
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str("\n---\n\n");
+    let back = super::paths::relative_link(content_path, &node.output_path);
+    let _ = writeln!(&mut s, "_索引: [{}]({})_", node.title, back);
+    Some(s)
 }
 
 /// 100件超過時に生成する `_symbols.md` の本文を生成する。

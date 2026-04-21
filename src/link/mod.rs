@@ -48,41 +48,37 @@ impl LinkGraph {
     }
 }
 
-/// すべてのノート由来ノードの本文中の wikilink を解決し、未解決一覧と
-/// 集計済みのリンクグラフを返す。
-/// ノート由来ノードのフロントマター `related` も同じ方式で解決し、
-/// 解決できたものはグラフに edge として追加する。
-pub fn resolve_all(nodes: &mut [Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
+/// すべてのノート由来ノードの本文と `related` フィールドを解析して
+/// 未解決一覧とリンクグラフを作る。索引ページ用の primary パス（note-index/）
+/// を解決ターゲットにする。本文は mutate しない（render 時に content-path 用
+/// の Resolver で再解決する）。
+pub fn resolve_all(nodes: &[Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
     let resolver = Resolver::build(nodes);
     let known_paths: HashSet<PathBuf> = nodes.iter().map(|n| n.output_path.clone()).collect();
     let mut graph = LinkGraph::default();
     let mut unresolved = Vec::new();
 
-    for n in nodes.iter_mut() {
+    for n in nodes.iter() {
         if !matches!(n.kind, NodeKind::NoteDerived) {
             continue;
         }
-        let output = n.output_path.clone();
+        let output = &n.output_path;
 
-        // フロントマターの related 解決
-        if let Some(note) = n.note.as_ref() {
+        if let Some(note) = &n.note {
+            // フロントマターの related
             for entry in &note.frontmatter.related {
-                let resolved = resolve_related_entry(entry, &output, &resolver, &known_paths);
-                if let Some(target) = resolved {
-                    graph.add_edge(&output, &target);
+                if let Some(target) = resolve_related_entry(entry, output, &resolver, &known_paths)
+                {
+                    graph.add_edge(output, &target);
                 }
             }
-        }
 
-        // 本文の wikilink 解決
-        let Some(note) = n.note.as_mut() else {
-            continue;
-        };
-        let (new_body, mut us, edges) = wikilink::resolve_in(&note.body, &output, &resolver);
-        note.body = new_body;
-        unresolved.append(&mut us);
-        for edge in edges {
-            graph.add_edge(&output, &edge);
+            // 本文の wikilink
+            let (_rewritten, mut us, edges) = wikilink::resolve_in(&note.body, output, &resolver);
+            unresolved.append(&mut us);
+            for edge in edges {
+                graph.add_edge(output, &edge);
+            }
         }
     }
 

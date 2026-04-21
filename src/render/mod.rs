@@ -45,6 +45,9 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         .map(|n| (n.output_path.clone(), n.title.clone()))
         .collect();
 
+    // 原本コピー（imported/）の wikilink は同じ `imported/` 相対で解決する
+    let content_resolver = crate::link::Resolver::build_for_content(out.nodes);
+
     for n in out.nodes {
         let path = output_root.join(&n.output_path);
         if let Some(parent) = path.parent() {
@@ -62,6 +65,18 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
             }
             fs::write(&abs, node::render_symbols_overflow(n))
                 .with_context(|| format!("failed to write {}", abs.display()))?;
+        }
+
+        // ノート原本コピー
+        if let (Some(content_path), Some(body)) =
+            (&n.content_path, node::render_imported(n, &content_resolver))
+        {
+            let abs = output_root.join(content_path);
+            if let Some(parent) = abs.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
         }
     }
 

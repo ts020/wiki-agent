@@ -29,25 +29,33 @@ pub fn sanitize_path(p: &Path) -> PathBuf {
 
 /// コード由来ノードの出力パスを算出する。
 ///
-/// - ルート (`""` 相当) → `directories/_root.md`
-/// - `src` → `directories/src.md`
-/// - `src/scan` → `directories/src/scan.md`
+/// - ルート (`""` 相当) → `code-nodes/_root.md`
+/// - `src` → `code-nodes/src.md`
+/// - `src/scan` → `code-nodes/src/scan.md`
 pub fn code_node_path(source_dir: &Path) -> PathBuf {
     let sanitized = sanitize_path(source_dir);
     if sanitized.as_os_str().is_empty() {
-        return PathBuf::from("directories").join("_root.md");
+        return PathBuf::from("code-nodes").join("_root.md");
     }
-    let mut out = PathBuf::from("directories").join(&sanitized);
+    let mut out = PathBuf::from("code-nodes").join(&sanitized);
     out.set_extension("md");
     out
 }
 
-/// ノート由来ノードの出力パスを算出する。
-/// - `README.md` → `notes/README.md`
-/// - `docs/foo.md` → `notes/docs/foo.md`
-pub fn note_node_path(source_file: &Path) -> PathBuf {
+/// ノート索引ページの出力パスを算出する。
+/// - `README.md` → `note-index/README.md`
+/// - `docs/foo.md` → `note-index/docs/foo.md`
+pub fn note_index_path(source_file: &Path) -> PathBuf {
     let sanitized = sanitize_path(source_file);
-    PathBuf::from("notes").join(sanitized)
+    PathBuf::from("note-index").join(sanitized)
+}
+
+/// ノート原本コピーの出力パスを算出する。
+/// - `README.md` → `imported/README.md`
+/// - `docs/foo.md` → `imported/docs/foo.md`
+pub fn imported_note_path(source_file: &Path) -> PathBuf {
+    let sanitized = sanitize_path(source_file);
+    PathBuf::from("imported").join(sanitized)
 }
 
 /// 出力ルート相対の 2 パス間の相対リンク文字列を返す。
@@ -133,7 +141,7 @@ mod tests {
     fn code_path_for_root_dir() {
         assert_eq!(
             code_node_path(Path::new("")),
-            PathBuf::from("directories/_root.md")
+            PathBuf::from("code-nodes/_root.md")
         );
     }
 
@@ -141,7 +149,7 @@ mod tests {
     fn code_path_for_nested_dir() {
         assert_eq!(
             code_node_path(Path::new("src/scan")),
-            PathBuf::from("directories/src/scan.md")
+            PathBuf::from("code-nodes/src/scan.md")
         );
     }
 
@@ -149,42 +157,62 @@ mod tests {
     fn code_path_sanitizes_components() {
         assert_eq!(
             code_node_path(Path::new("a:b/c")),
-            PathBuf::from("directories/a_b/c.md")
+            PathBuf::from("code-nodes/a_b/c.md")
         );
     }
 
     #[test]
-    fn note_path_for_root_readme() {
+    fn note_index_path_for_root_readme() {
         assert_eq!(
-            note_node_path(Path::new("README.md")),
-            PathBuf::from("notes/README.md")
+            note_index_path(Path::new("README.md")),
+            PathBuf::from("note-index/README.md")
         );
     }
 
     #[test]
-    fn note_path_preserves_nested_structure() {
+    fn note_index_path_preserves_nested_structure() {
         assert_eq!(
-            note_node_path(Path::new("docs/a/b.md")),
-            PathBuf::from("notes/docs/a/b.md")
+            note_index_path(Path::new("docs/a/b.md")),
+            PathBuf::from("note-index/docs/a/b.md")
+        );
+    }
+
+    #[test]
+    fn imported_path_for_root_readme() {
+        assert_eq!(
+            imported_note_path(Path::new("README.md")),
+            PathBuf::from("imported/README.md")
+        );
+    }
+
+    #[test]
+    fn imported_path_preserves_nested_structure() {
+        assert_eq!(
+            imported_note_path(Path::new("docs/a/b.md")),
+            PathBuf::from("imported/docs/a/b.md")
         );
     }
 
     #[test]
     fn note_path_sanitizes_forbidden_chars() {
         assert_eq!(
-            note_node_path(Path::new("docs/a:b.md")),
-            PathBuf::from("notes/docs/a_b.md")
+            note_index_path(Path::new("docs/a:b.md")),
+            PathBuf::from("note-index/docs/a_b.md")
+        );
+        assert_eq!(
+            imported_note_path(Path::new("docs/a:b.md")),
+            PathBuf::from("imported/docs/a_b.md")
         );
     }
 
     #[test]
     fn resolve_conflict_appends_suffix() {
         let mut used = HashSet::new();
-        let first = resolve_conflict(PathBuf::from("directories/a.md"), &mut used);
-        let second = resolve_conflict(PathBuf::from("directories/a.md"), &mut used);
-        let third = resolve_conflict(PathBuf::from("directories/a.md"), &mut used);
-        assert_eq!(first, PathBuf::from("directories/a.md"));
-        assert_eq!(second, PathBuf::from("directories/a-1.md"));
-        assert_eq!(third, PathBuf::from("directories/a-2.md"));
+        let first = resolve_conflict(PathBuf::from("code-nodes/a.md"), &mut used);
+        let second = resolve_conflict(PathBuf::from("code-nodes/a.md"), &mut used);
+        let third = resolve_conflict(PathBuf::from("code-nodes/a.md"), &mut used);
+        assert_eq!(first, PathBuf::from("code-nodes/a.md"));
+        assert_eq!(second, PathBuf::from("code-nodes/a-1.md"));
+        assert_eq!(third, PathBuf::from("code-nodes/a-2.md"));
     }
 }

@@ -185,8 +185,11 @@ mod tests {
             "c.md"
         );
         assert_eq!(
-            render_relative(Path::new("notes/a/b.md"), Path::new("directories/src.md")),
-            "../../directories/src.md"
+            render_relative(
+                Path::new("note-index/a/b.md"),
+                Path::new("code-nodes/src.md")
+            ),
+            "../../code-nodes/src.md"
         );
     }
 }

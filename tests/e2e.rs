@@ -24,7 +24,7 @@ fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &st
     let mut used = HashSet::new();
     let mut nodes = build_code_nodes_with(&files, target, &mut used);
     nodes.extend(build_note_nodes(notes, &mut used));
-    let (unresolved, graph) = resolve_all(&mut nodes);
+    let (unresolved, graph) = resolve_all(&nodes);
     let tag_index = build_tag_index(&nodes);
     compute_relations(&mut nodes, &graph, &tag_index);
     write_wiki(
@@ -67,7 +67,7 @@ fn generates_index_overview_and_directory_nodes() {
     assert!(index.contains("## Overview"));
     assert!(index.contains("overview/tech-stack.md"));
     assert!(index.contains("development/index.md"));
-    assert!(index.contains("directories/_root.md"));
+    assert!(index.contains("code-nodes/_root.md"));
 
     let tech = fs::read_to_string(output.join("overview/tech-stack.md")).unwrap();
     assert!(tech.contains("# Tech stack"));
@@ -136,29 +136,40 @@ fn ingests_notes_with_frontmatter_and_directory_convention() {
 
     let index = fs::read_to_string(output.join("index.md")).unwrap();
     assert!(index.contains("## Notes"));
-    assert!(index.contains("notes/README.md"));
+    assert!(index.contains("note-index/README.md"));
     assert!(index.contains("アーキテクチャ"));
     assert!(index.contains("Inline note"));
     assert!(!index.contains("ambient"));
     assert!(!index.contains("should skip"));
 
-    // README の body が Content セクションに出ている
-    let readme = fs::read_to_string(output.join("notes/README.md")).unwrap();
-    assert!(readme.contains("## Content"));
-    assert!(readme.contains("Root readme."));
+    // README 索引は本文コピーを持たず、原本リンクのみ
+    let readme_idx = fs::read_to_string(output.join("note-index/README.md")).unwrap();
+    assert!(readme_idx.contains("## Original"));
+    assert!(!readme_idx.contains("## Content"));
+    let readme_imported = fs::read_to_string(output.join("imported/README.md")).unwrap();
+    assert!(readme_imported.contains("Root readme."));
 
-    // docs/architecture.md は見出しツリーが Structure に出る
-    let arch = fs::read_to_string(output.join("notes/docs/architecture.md")).unwrap();
-    assert!(arch.contains("# アーキテクチャ"));
-    assert!(arch.contains("Overview"));
-    assert!(arch.contains("Goals"));
+    // docs/architecture.md の索引は見出しツリーだけ
+    let arch_idx = fs::read_to_string(output.join("note-index/docs/architecture.md")).unwrap();
+    assert!(arch_idx.contains("# アーキテクチャ"));
+    assert!(arch_idx.contains("Overview"));
+    assert!(arch_idx.contains("Goals"));
+    assert!(!arch_idx.contains("Content"));
 
-    // wiki:true の外部 md も取り込まれる
-    assert!(output.join("notes/src/notes.md").exists());
+    // 本文は imported/ 側
+    let arch_imported = fs::read_to_string(output.join("imported/docs/architecture.md")).unwrap();
+    assert!(arch_imported.contains("本文。"));
+    assert!(arch_imported.contains("目標。"));
 
-    // wiki:false のファイルは除外
-    assert!(!output.join("notes/src/skip.md").exists());
-    assert!(!output.join("notes/src/ambient.md").exists());
+    // wiki:true の外部 md も索引と原本に出力される
+    assert!(output.join("note-index/src/notes.md").exists());
+    assert!(output.join("imported/src/notes.md").exists());
+
+    // wiki:false のファイルは両方除外
+    assert!(!output.join("note-index/src/skip.md").exists());
+    assert!(!output.join("imported/src/skip.md").exists());
+    assert!(!output.join("note-index/src/ambient.md").exists());
+    assert!(!output.join("imported/src/ambient.md").exists());
 }
 
 #[test]
@@ -181,14 +192,15 @@ fn resolves_wikilinks_in_note_body_and_lists_unresolved() {
     let output = tmp.path().join("out");
     run_generation(&target, &output, "project");
 
-    let idx = fs::read_to_string(output.join("notes/docs/index.md")).unwrap();
-    assert!(idx.contains("[architecture](architecture.md)"));
-    assert!(idx.contains("[architecture#Goals](architecture.md#goals)"));
-    assert!(idx.contains("[plan](architecture.md)"));
+    // wikilink は imported/ 側の本文で解決される
+    let imported = fs::read_to_string(output.join("imported/docs/index.md")).unwrap();
+    assert!(imported.contains("[architecture](architecture.md)"));
+    assert!(imported.contains("[architecture#Goals](architecture.md#goals)"));
+    assert!(imported.contains("[plan](architecture.md)"));
     // embed は plain link に縮退する
-    assert!(idx.contains("[architecture](architecture.md)"));
+    assert!(imported.contains("[architecture](architecture.md)"));
     // 未解決は原文 + (未解決)
-    assert!(idx.contains("[[missing]] (未解決)"));
+    assert!(imported.contains("[[missing]] (未解決)"));
 
     let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
     assert!(unresolved.contains("# Unresolved wikilinks"));
@@ -263,7 +275,7 @@ fn emits_related_backlinks_and_read_next_sections() {
     let output = tmp.path().join("out");
     run_generation(&target, &output, "project");
 
-    let alpha = fs::read_to_string(output.join("notes/docs/alpha.md")).unwrap();
+    let alpha = fs::read_to_string(output.join("note-index/docs/alpha.md")).unwrap();
     // alpha -> beta の wikilink があるので Related に beta
     assert!(alpha.contains("## Related"));
     assert!(alpha.contains("Beta"));
@@ -273,7 +285,7 @@ fn emits_related_backlinks_and_read_next_sections() {
     assert!(alpha.contains("## Read next"));
     assert!(alpha.contains("Gamma"));
 
-    let beta = fs::read_to_string(output.join("notes/docs/beta.md")).unwrap();
+    let beta = fs::read_to_string(output.join("note-index/docs/beta.md")).unwrap();
     // frontmatter.related で alpha を参照するので forward link が graph に載る
     assert!(beta.contains("## Related"));
     assert!(beta.contains("Alpha"));

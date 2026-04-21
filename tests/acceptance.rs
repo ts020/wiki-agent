@@ -26,7 +26,7 @@ fn generate(target: &Path, output: &Path, title: &str) {
     let mut used = HashSet::new();
     let mut nodes = build_code_nodes_with(&files, target, &mut used);
     nodes.extend(build_note_nodes(notes, &mut used));
-    let (unresolved, graph) = resolve_all(&mut nodes);
+    let (unresolved, graph) = resolve_all(&nodes);
     let tag_index = build_tag_index(&nodes);
     compute_relations(&mut nodes, &graph, &tag_index);
     write_wiki(
@@ -82,7 +82,7 @@ fn generates_index_multiple_nodes_and_excludes() {
     // index.md
     assert!(output.join("index.md").exists());
     // 複数ノード
-    let dir_count = fs::read_dir(output.join("directories"))
+    let dir_count = fs::read_dir(output.join("code-nodes"))
         .unwrap()
         .filter(|e| {
             e.as_ref()
@@ -92,7 +92,7 @@ fn generates_index_multiple_nodes_and_excludes() {
         .count();
     assert!(
         dir_count >= 2,
-        "directories/ 配下に複数のノードが生成されるべき"
+        "code-nodes/ 配下に複数のノードが生成されるべき"
     );
     // 除外対象が無視される
     let index = fs::read_to_string(output.join("index.md")).unwrap();
@@ -128,7 +128,7 @@ fn rerun_picks_up_added_notes_and_updates_index() {
     assert!(!idx2.contains("Unresolved"));
     assert!(idx2.contains("tags/x.md"));
 
-    let b_md = fs::read_to_string(output.join("notes/docs/b.md")).unwrap();
+    let b_md = fs::read_to_string(output.join("note-index/docs/b.md")).unwrap();
     assert!(b_md.contains("## Backlinks"));
     assert!(b_md.contains("A"));
 }
@@ -149,13 +149,14 @@ fn wikilinks_resolve_or_collect_unresolved() {
     let output = tmp.path().join("out");
     generate(&target, &output, "project");
 
-    let here = fs::read_to_string(output.join("notes/docs/here.md")).unwrap();
+    // wikilink は imported/ 配下の本文コピーで解決される（imported→imported 相対）
+    let here = fs::read_to_string(output.join("imported/docs/here.md")).unwrap();
     assert!(here.contains("[there](there.md)"));
     assert!(here.contains("[[missing]] (未解決)"));
 
     let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
     assert!(unresolved.contains("missing"));
-    assert!(!unresolved.contains("| `notes/docs/there.md` |"));
+    assert!(!unresolved.contains("| `note-index/docs/there.md` |"));
 }
 
 /// 受け入れ基準: 100 件超ディレクトリで `_symbols.md` 生成
@@ -174,10 +175,10 @@ fn generates_symbols_overflow_over_limit() {
     let output = tmp.path().join("out");
     generate(&target, &output, "project");
 
-    // `directories/src.md` は overflow 案内、`directories/src/_symbols.md` に全件
-    let src_node = fs::read_to_string(output.join("directories/src.md")).unwrap();
+    // `code-nodes/src.md` は overflow 案内、`code-nodes/src/_symbols.md` に全件
+    let src_node = fs::read_to_string(output.join("code-nodes/src.md")).unwrap();
     assert!(src_node.contains("_symbols.md"));
-    let overflow = fs::read_to_string(output.join("directories/src/_symbols.md")).unwrap();
+    let overflow = fs::read_to_string(output.join("code-nodes/src/_symbols.md")).unwrap();
     assert!(overflow.contains("f0"));
     assert!(overflow.contains("f109"));
 }
@@ -200,14 +201,22 @@ fn each_node_is_self_contained() {
     let output = tmp.path().join("out");
     generate(&target, &output, "project");
 
-    let code = fs::read_to_string(output.join("directories/src.md")).unwrap();
+    let code = fs::read_to_string(output.join("code-nodes/src.md")).unwrap();
     assert!(code.contains("## Summary"));
     assert!(code.contains("## Key files"));
     assert!(code.contains("## Structure"));
 
-    let note = fs::read_to_string(output.join("notes/docs/note.md")).unwrap();
-    assert!(note.contains("## Summary"));
-    assert!(note.contains("## Key files"));
-    assert!(note.contains("## Structure"));
-    assert!(note.contains("## Content"));
+    // note-index はメタ情報のみ（本文は持たない）
+    let note_idx = fs::read_to_string(output.join("note-index/docs/note.md")).unwrap();
+    assert!(note_idx.contains("## Summary"));
+    assert!(note_idx.contains("## Key files"));
+    assert!(note_idx.contains("## Structure"));
+    assert!(note_idx.contains("## Original"));
+    assert!(!note_idx.contains("## Content"));
+
+    // imported は原本本文そのまま（body の見出しを保持、title 追加なし）
+    let imported = fs::read_to_string(output.join("imported/docs/note.md")).unwrap();
+    assert!(imported.contains("# H"));
+    assert!(imported.contains("body."));
+    assert!(imported.contains("索引"));
 }

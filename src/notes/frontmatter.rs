@@ -161,7 +161,7 @@ wiki: true
 title: "Auth design"
 summary: "認証"
 tags: [auth, security]
-related: [directories/src.md]
+related: [code-nodes/src.md]
 aliases:
   - auth
   - authn
@@ -173,7 +173,7 @@ body"#;
         assert_eq!(fm.title.as_deref(), Some("Auth design"));
         assert_eq!(fm.summary.as_deref(), Some("認証"));
         assert_eq!(fm.tags, vec!["auth", "security"]);
-        assert_eq!(fm.related, vec!["directories/src.md"]);
+        assert_eq!(fm.related, vec!["code-nodes/src.md"]);
         assert_eq!(fm.aliases, vec!["auth", "authn"]);
     }
 
