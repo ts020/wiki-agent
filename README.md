@@ -1,10 +1,11 @@
-# repo-wiki agent
+# md-wiki
 
-ローカルのコードベースと手書き Markdown ノートを解析し、AI および人間が少ないコンテキストで探索・理解できる Markdown ベースの wiki ツリーを生成する CLI。
+Markdown ファイルを投げ込むと、タグ・見出し・リンクで横断できる個人用 wiki が自動で育っていく CLI ツール。
 
-- AI / 外部 API 非依存（v1 はすべて静的解析 + ルールベース）
-- 毎回フル生成。md を追加して再実行すれば index/タグ/バックリンクが自動で増築される
-- Obsidian 互換の `[[wikilink]]` をサポート
+- **`.md` 専用** — ソースコードは対象外（索引化は `grep` / LSP に任せる）
+- **AI / 外部 API 非依存** — 静的解析とルールベースのみ。何度でも再生成できる
+- **増築型** — md を追加して再実行するだけで、index / タグ索引 / 見出し索引 / リンク索引 / バックリンクが自動更新される
+- **Obsidian 互換の `[[wikilink]]`** をサポート（`![[embed]]` はプレーンリンクに縮退）
 
 詳細な要件は [`docs/要件定義/index.md`](docs/要件定義/index.md) を参照。
 
@@ -12,43 +13,47 @@
 
 ```sh
 cargo build
-cargo run -- [TARGET_DIR]        # 未指定時はカレント、出力は ./repo-wiki
-cargo run -- path/to/repo --output path/to/wiki
+
+# 単一 md を wiki 化
+cargo run -- path/to/note.md
+
+# ディレクトリを再帰的に wiki 化
+cargo run -- path/to/notes --recursive
+
+# 出力先を指定
+cargo run -- path/to/notes -r -o path/to/wiki
 ```
+
+既定の出力先は `./md-wiki`。
 
 ## 生成されるもの
 
 ```
-repo-wiki/
-├── index.md              # プロジェクト概要と全ノードへの導線
-├── overview/             # 技術スタック / エントリポイント / テスト構造
-├── development/          # ビルド/テストコマンド案内
-├── code-nodes/           # コード由来ノード（ディレクトリ単位、機械生成）
-├── note-index/           # 手書き md の索引ページ（機械生成、本文なし）
-├── imported/             # 手書き md の本文コピー（wikilink 解決のみ）
-├── tags/                 # タグ索引（ネストタグ対応）
-└── _unresolved.md        # 未解決 wikilink 一覧
+md-wiki/
+├── index.md            # 入口。ノート数・索引への導線
+├── notes/              # ノート本体（原本 + wikilink 変換 + 末尾に自動リンク欄）
+├── tags/               # タグ索引（ネストタグは tags/<a>/<b>.md）
+├── headings/           # 全ノートの見出し索引（h1-h2）
+├── links/              # ノート間のリンク関係一覧
+└── _unresolved.md      # 未解決 wikilink 一覧
 ```
 
-- **`code-nodes/` と `note-index/`** は機械生成。Summary / Key files / Structure / Related / Read next / Backlinks を含む
-- **`imported/`** は原本コピー。`[[wikilink]]` のみ Markdown リンクに変換、それ以外は無改変
-- `repo-wiki/` を削除しても原本 (`imported/`) 以外の機械生成物は再実行で再構築できる
+- `notes/` 配下は原本の相対パスを維持して配置。本文は `[[wikilink]]` 変換のみで無改変
+- 各ノートの末尾には `## Backlinks` と `## Related` が水平線で区切られて自動付与される
+- `md-wiki/` を削除しても入力側の `.md` は一切変更されないため、何度でも再生成できる
 
-## 手書き md の取り込みルール
+## 取り込みルール
 
-以下の優先順で判定する（先に該当したルールで確定）：
-
-1. フロントマターに `wiki: false` → 除外
-2. フロントマターに `wiki: true` → 取り込み
-3. プロジェクトルート直下の `README.md`
-4. `docs/` / `notes/` / `.wiki/` 配下（再帰的）
-5. それ以外は無視
+対象 `.md` について、フロントマターに `wiki: false` があるものだけを除外する。それ以外は取り込む。
 
 フロントマターフィールド: `wiki` / `title` / `summary` / `tags` / `related` / `aliases`
 
-## v1 シンボル抽出対応言語
+## 除外
 
-Rust / TypeScript・JavaScript / Python / Go（正規表現ベース、FP/FN あり）
+以下のディレクトリは走査しない：
+
+- `.git`, `node_modules`, `dist`, `build`, `target`
+- 名前が `.` で始まるディレクトリ（`.wiki` を除く）
 
 ## 開発
 
