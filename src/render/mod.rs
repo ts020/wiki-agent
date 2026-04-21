@@ -3,6 +3,7 @@ pub mod headings;
 pub mod index;
 pub mod links;
 pub mod paths;
+pub mod site_index;
 pub mod tags;
 pub mod unresolved;
 
@@ -27,7 +28,6 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
     fs::create_dir_all(output_root)
         .with_context(|| format!("failed to create {}", output_root.display()))?;
 
-    // タイトル表は全ノートの全ページ分を含める（Backlinks のタイトル解決に必要）。
     let mut titles: std::collections::BTreeMap<std::path::PathBuf, String> =
         std::collections::BTreeMap::new();
     for n in out.nodes {
@@ -38,60 +38,48 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
 
     let resolver = Resolver::build(out.nodes);
 
-    // ノートごとに入口 + 断片ページを書き出す
     for n in out.nodes {
         for page in fragment::render_pages(n, &titles, &resolver) {
-            let abs = output_root.join(&page.output_path);
-            if let Some(parent) = abs.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-            }
-            fs::write(&abs, page.body)
-                .with_context(|| format!("failed to write {}", abs.display()))?;
+            write_page(output_root, &page.output_path, &page.body)?;
         }
     }
 
-    // タグ索引
     let tag_index = tags::build_tag_index(out.nodes);
-    write_file(
+    write_page(
         output_root,
-        "tags/index.md",
+        Path::new("tags/index.md"),
         &tags::render_tag_index_page(&tag_index),
     )?;
     for (tag, paths) in &tag_index.entries {
         let path = tags::tag_page_path(tag);
         let body = tags::render_tag_page(tag, paths, out.nodes);
-        let abs = output_root.join(&path);
-        if let Some(parent) = abs.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
+        write_page(output_root, &path, &body)?;
     }
 
-    // 見出し索引
-    write_file(
+    write_page(
         output_root,
-        "headings/index.md",
+        Path::new("headings/index.md"),
         &headings::render_headings_index(out.nodes),
     )?;
 
-    // リンク索引
-    write_file(
+    write_page(
         output_root,
-        "links/index.md",
+        Path::new("links/index.md"),
         &links::render_links_index(out.nodes, out.graph),
     )?;
 
-    write_file(
+    write_page(
         output_root,
-        "_unresolved.md",
+        Path::new("_unresolved.md"),
         &unresolved::render_unresolved(out.unresolved),
     )?;
 
+    for page in site_index::render_site_indexes(out.nodes) {
+        write_page(output_root, &page.output_path, &page.body)?;
+    }
+
     let idx = index::render_index(out.project_title, out.nodes, out.unresolved, &tag_index);
-    fs::write(output_root.join("index.md"), idx)
-        .with_context(|| format!("failed to write index.md under {}", output_root.display()))?;
+    write_page(output_root, Path::new("index.md"), &idx)?;
 
     Ok(())
 }
@@ -131,12 +119,13 @@ fn clean_output(output_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_file(root: &Path, rel: &str, body: &str) -> Result<()> {
-    let path = root.join(rel);
-    if let Some(parent) = path.parent() {
+/// 1 ページ分の書き出しを集約するヘルパー。
+fn write_page(root: &Path, rel: &Path, body: &str) -> Result<()> {
+    let abs = root.join(rel);
+    if let Some(parent) = abs.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))?;
+    fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
     Ok(())
 }

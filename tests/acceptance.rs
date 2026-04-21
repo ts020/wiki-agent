@@ -497,6 +497,69 @@ fn backlinks_ordered_by_source_path() {
     assert!(a_idx < b_idx, "a/one が b/two より先に来る: {t}");
 }
 
+/// AC-21: fragments 配下の各ディレクトリに `_index.md` が生成される
+#[test]
+fn site_index_generated_for_each_section() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("docs/auth")).unwrap();
+    fs::write(target.join("root.md"), "# Root\n\nx\n").unwrap();
+    fs::write(target.join("docs/auth/session.md"), "# Session\n\ny\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let root_idx = fs::read_to_string(output.join("fragments/_index.md")).unwrap();
+    let docs_idx = fs::read_to_string(output.join("fragments/docs/_index.md")).unwrap();
+    let auth_idx = fs::read_to_string(output.join("fragments/docs/auth/_index.md")).unwrap();
+
+    assert!(root_idx.contains("# fragments"));
+    assert!(root_idx.contains("- [Root](root/index.md)"));
+    assert!(root_idx.contains("- [docs](docs/_index.md) — 1 ノート"));
+    assert!(root_idx.contains("- Notes: 2 (recursive)"));
+
+    assert!(docs_idx.contains("- [auth](auth/_index.md) — 1 ノート"));
+    assert!(auth_idx.contains("- [Session](session/index.md)"));
+
+    // 入口 index.md と _index.md は共存する（衝突しない）
+    assert!(output.join("fragments/root/index.md").exists());
+    assert!(output.join("fragments/docs/auth/session/index.md").exists());
+}
+
+/// AC-22: ルート index.md には全ノート列挙が含まれず、fragments/_index.md への導線のみが並ぶ
+#[test]
+fn root_index_is_reduced_to_sitemap() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("a.md"), "# A\n\nx\n").unwrap();
+    fs::write(target.join("b.md"), "# B\n\ny\n").unwrap();
+    fs::write(target.join("c.md"), "# C\n\nz\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let idx = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(idx.contains("- [Notes](fragments/_index.md)"));
+    assert!(idx.contains("- [Tags](tags/index.md)"));
+    assert!(idx.contains("- [Headings](headings/index.md)"));
+    assert!(idx.contains("- [Links](links/index.md)"));
+
+    // 全ノート列挙は含まれない（v1.1 時点での個別ノートリンク形式を拒否）
+    assert!(
+        !idx.contains("(fragments/a/index.md)"),
+        "ルート index にノート直リンクが含まれている: {idx}"
+    );
+    assert!(
+        !idx.contains("(fragments/b/index.md)"),
+        "ルート index にノート直リンクが含まれている: {idx}"
+    );
+    assert!(
+        !idx.contains("(fragments/c/index.md)"),
+        "ルート index にノート直リンクが含まれている: {idx}"
+    );
+}
+
 /// AC-20: h2 が無いノートは入口のみで、断片ページは生成されない
 #[test]
 fn no_h2_note_has_entry_only() {

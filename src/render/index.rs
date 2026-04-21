@@ -1,12 +1,11 @@
 use std::fmt::Write;
-use std::path::PathBuf;
 
-use super::paths::relative_link;
 use super::tags::TagIndex;
 use crate::link::UnresolvedLink;
 use crate::model::{Node, PageKind, iter_pages};
 
-/// ルート `index.md` の本文を生成する（FR-12）。
+/// ルート `index.md` の本文を生成する（FR-12 / AC-22）。
+/// サイト全体のサマリと各索引への導線のみを置く。ノート一覧は `fragments/_index.md` に委譲。
 pub fn render_index(
     project_title: &str,
     nodes: &[Node],
@@ -33,21 +32,11 @@ pub fn render_index(
 
     let _ = writeln!(&mut s, "## Sections");
     s.push('\n');
+    let _ = writeln!(&mut s, "- [Notes](fragments/_index.md)");
     let _ = writeln!(&mut s, "- [Tags](tags/index.md)");
     let _ = writeln!(&mut s, "- [Headings](headings/index.md)");
     let _ = writeln!(&mut s, "- [Links](links/index.md)");
     s.push('\n');
-
-    if !nodes.is_empty() {
-        let _ = writeln!(&mut s, "## Notes");
-        s.push('\n');
-        let from = PathBuf::from("index.md");
-        for n in nodes {
-            let link = relative_link(&from, &n.output_path);
-            let _ = writeln!(&mut s, "- [{}]({})", n.title, link);
-        }
-        s.push('\n');
-    }
 
     if !unresolved.is_empty() {
         let _ = writeln!(
