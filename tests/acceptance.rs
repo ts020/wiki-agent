@@ -1,31 +1,26 @@
 //! docs/要件定義/13-受け入れ基準.md の各項目に対応する E2E 受け入れテスト。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
-use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
-use repo_wiki::link::resolve_all;
-use repo_wiki::notes::ingest_notes;
-use repo_wiki::relations::compute_relations;
-use repo_wiki::render::tags::build_tag_index;
-use repo_wiki::render::{WikiOutput, write_wiki};
-use repo_wiki::scan::{ScanConfig, scan};
+use md_wiki::build::build_nodes;
+use md_wiki::link::resolve_all;
+use md_wiki::notes::ingest_notes;
+use md_wiki::relations::compute_relations;
+use md_wiki::render::tags::build_tag_index;
+use md_wiki::render::{WikiOutput, write_wiki};
+use md_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
 
-fn generate(target: &Path, output: &Path, title: &str) {
+fn generate_dir(target: &Path, output: &Path, title: &str, recursive: bool) {
     let files = scan(&ScanConfig {
         root: target.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive,
     });
-    let tech_stack = detect_tech_stack(&files, target);
-    let entry_points = detect_entry_points(&files);
-    let test_layout = detect_test_layout(&files);
     let notes = ingest_notes(&files, target);
-    let mut used = HashSet::new();
-    let mut nodes = build_code_nodes_with(&files, target, &mut used);
-    nodes.extend(build_note_nodes(notes, &mut used));
+    let mut nodes = build_nodes(notes);
     let (unresolved, graph) = resolve_all(&nodes);
     let tag_index = build_tag_index(&nodes);
     compute_relations(&mut nodes, &graph, &tag_index);
@@ -34,9 +29,6 @@ fn generate(target: &Path, output: &Path, title: &str) {
         &WikiOutput {
             project_title: title,
             nodes: &nodes,
-            tech_stack: &tech_stack,
-            entry_points: &entry_points,
-            test_layout: &test_layout,
             unresolved: &unresolved,
         },
     )
@@ -45,6 +37,9 @@ fn generate(target: &Path, output: &Path, title: &str) {
 
 fn snapshot_dir(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut out = BTreeMap::new();
+    if !path.exists() {
+        return out;
+    }
     for entry in walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -58,51 +53,139 @@ fn snapshot_dir(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     out
 }
 
-/// 受け入れ基準: index.md が生成される + 複数ノード + 除外 + コードベース非変更 + オフライン
+/// AC-02 / AC-05: ディレクトリ入力（非再帰でも直下の md が拾われる）と除外
 #[test]
-fn generates_index_multiple_nodes_and_excludes() {
+fn generates_index_and_notes_and_excludes() {
     let tmp = TempDir::new().unwrap();
     let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("src")).unwrap();
+    fs::create_dir_all(target.join(".git")).unwrap();
     fs::create_dir_all(target.join("node_modules")).unwrap();
-    fs::create_dir_all(target.join("target/debug")).unwrap();
-    fs::write(target.join("README.md"), "# project").unwrap();
-    fs::write(target.join("src/a.rs"), "pub fn a() {}").unwrap();
-    fs::write(target.join("src/b.rs"), "pub fn b() {}").unwrap();
-    fs::write(target.join("node_modules/pkg.js"), "ignore me").unwrap();
-    fs::write(target.join("target/debug/bin"), "ignore me").unwrap();
+    fs::write(target.join("README.md"), "# project\n\nbody").unwrap();
+    fs::write(target.join("notes-a.md"), "# A").unwrap();
+    fs::write(target.join(".git/HEAD"), "ref: ...").unwrap();
+    fs::write(target.join("node_modules/pkg.md"), "ignore").unwrap();
 
     let before = snapshot_dir(&target);
     let output = tmp.path().join("out");
-    generate(&target, &output, "project");
+    generate_dir(&target, &output, "project", true);
     let after = snapshot_dir(&target);
 
-    // コードベースが変更されない
-    assert_eq!(before, after, "target ディレクトリが変更されている");
-    // index.md
+    // AC-14 非破壊
+    assert_eq!(before, after, "input directory が変更されている");
+
+    // AC-02 index.md と notes/ が生成される
     assert!(output.join("index.md").exists());
-    // 複数ノード
-    let dir_count = fs::read_dir(output.join("code-nodes"))
-        .unwrap()
-        .filter(|e| {
-            e.as_ref()
-                .map(|x| x.path().extension() == Some("md".as_ref()))
-                .unwrap_or(false)
-        })
-        .count();
-    assert!(
-        dir_count >= 2,
-        "code-nodes/ 配下に複数のノードが生成されるべき"
-    );
-    // 除外対象が無視される
-    let index = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(!index.contains("node_modules"));
-    assert!(!index.contains("target/debug"));
+    assert!(output.join("notes/README.md").exists());
+    assert!(output.join("notes/notes-a.md").exists());
+
+    // AC-05 除外対象
+    assert!(!output.join("notes/.git").exists());
+    assert!(!output.join("notes/node_modules").exists());
 }
 
-/// 受け入れ基準: ノート追加 → 再実行 → index/タグ/バックリンク更新
+/// AC-03: 非再帰ではサブディレクトリは走査されない
 #[test]
-fn rerun_picks_up_added_notes_and_updates_index() {
+fn non_recursive_skips_subdirectories() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("deep")).unwrap();
+    fs::write(target.join("top.md"), "# Top").unwrap();
+    fs::write(target.join("deep/nested.md"), "# Nested").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", false);
+
+    assert!(output.join("notes/top.md").exists());
+    assert!(!output.join("notes/deep/nested.md").exists());
+}
+
+/// AC-04: `--recursive` 時はサブディレクトリの md も取り込まれ相対パスが維持される
+#[test]
+fn recursive_preserves_nested_paths() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("a/b")).unwrap();
+    fs::write(target.join("a/b/deep.md"), "# Deep").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    assert!(output.join("notes/a/b/deep.md").exists());
+}
+
+/// AC-06 / AC-07: wikilink 解決と未解決リンク集約
+#[test]
+fn wikilinks_resolve_or_collect_unresolved() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("here.md"), "links [[there]] and [[missing]]").unwrap();
+    fs::write(target.join("there.md"), "# There").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let here = fs::read_to_string(output.join("notes/here.md")).unwrap();
+    assert!(
+        here.contains("[there](there.md)"),
+        "解決済みリンクが出力に含まれること: {here}"
+    );
+    assert!(here.contains("[[missing]] (未解決)"));
+
+    let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
+    assert!(unresolved.contains("missing"));
+}
+
+/// AC-08: タグ索引。ネストタグは親・子の双方に登場する
+#[test]
+fn tag_index_and_nested_tags() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(
+        target.join("a.md"),
+        "---\ntitle: A\ntags: [auth/session]\n---\n# A",
+    )
+    .unwrap();
+    fs::write(target.join("b.md"), "---\ntitle: B\ntags: [auth]\n---\n# B").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let auth = fs::read_to_string(output.join("tags/auth.md")).unwrap();
+    assert!(auth.contains("A"));
+    assert!(auth.contains("B"));
+    let session = fs::read_to_string(output.join("tags/auth/session.md")).unwrap();
+    assert!(session.contains("A"));
+    assert!(!session.contains("- [B]"));
+}
+
+/// AC-11: バックリンクが付与される（参照が無いノートは `## Backlinks` を出さない）
+#[test]
+fn backlinks_appear_when_referenced() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("a.md"), "# A\n\nrefs [[b]]").unwrap();
+    fs::write(target.join("b.md"), "# B").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let b = fs::read_to_string(output.join("notes/b.md")).unwrap();
+    assert!(b.contains("## Backlinks"));
+    assert!(b.contains("A"));
+
+    let a = fs::read_to_string(output.join("notes/a.md")).unwrap();
+    assert!(
+        !a.contains("## Backlinks"),
+        "参照されていないノートでは Backlinks セクションを出さない"
+    );
+}
+
+/// AC-13 冪等性: 2 回連続実行で出力が一致する
+#[test]
+fn idempotent_on_rerun() {
     let tmp = TempDir::new().unwrap();
     let target = tmp.path().join("project");
     fs::create_dir_all(target.join("docs")).unwrap();
@@ -111,112 +194,39 @@ fn rerun_picks_up_added_notes_and_updates_index() {
         "---\ntitle: A\ntags: [x]\n---\n[[b]]",
     )
     .unwrap();
+    fs::write(target.join("docs/b.md"), "---\ntitle: B\ntags: [x]\n---\n").unwrap();
 
     let output = tmp.path().join("out");
-    generate(&target, &output, "project");
+    generate_dir(&target, &output, "project", true);
+    let first = snapshot_dir(&output);
+    generate_dir(&target, &output, "project", true);
+    let second = snapshot_dir(&output);
 
-    // 最初は b が未解決
+    assert_eq!(
+        first, second,
+        "同一入力に対して出力は毎回一致すること（FR-03 + AC-13）"
+    );
+}
+
+/// AC-13 増築: ノートを追加して再実行すると index と unresolved が更新される
+#[test]
+fn rerun_picks_up_added_notes() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("a.md"), "links [[b]]").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
     let idx1 = fs::read_to_string(output.join("index.md")).unwrap();
     assert!(idx1.contains("Unresolved"));
 
-    // b を追加して再実行
-    fs::write(target.join("docs/b.md"), "---\ntitle: B\ntags: [x]\n---\n").unwrap();
-    generate(&target, &output, "project");
+    fs::write(target.join("b.md"), "# B").unwrap();
+    generate_dir(&target, &output, "project", true);
 
-    // 今度は解決され、backlink と tag 索引に反映される
     let idx2 = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(!idx2.contains("Unresolved"));
-    assert!(idx2.contains("tags/x.md"));
-
-    let b_md = fs::read_to_string(output.join("note-index/docs/b.md")).unwrap();
-    assert!(b_md.contains("## Backlinks"));
-    assert!(b_md.contains("A"));
-}
-
-/// 受け入れ基準: `[[NoteName]]` 解決と `_unresolved.md` 列挙
-#[test]
-fn wikilinks_resolve_or_collect_unresolved() {
-    let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("docs")).unwrap();
-    fs::write(
-        target.join("docs/here.md"),
-        "links [[there]] and [[missing]]",
-    )
-    .unwrap();
-    fs::write(target.join("docs/there.md"), "# There").unwrap();
-
-    let output = tmp.path().join("out");
-    generate(&target, &output, "project");
-
-    // wikilink は imported/ 配下の本文コピーで解決される（imported→imported 相対）
-    let here = fs::read_to_string(output.join("imported/docs/here.md")).unwrap();
-    assert!(here.contains("[there](there.md)"));
-    assert!(here.contains("[[missing]] (未解決)"));
-
-    let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
-    assert!(unresolved.contains("missing"));
-    assert!(!unresolved.contains("| `note-index/docs/there.md` |"));
-}
-
-/// 受け入れ基準: 100 件超ディレクトリで `_symbols.md` 生成
-#[test]
-fn generates_symbols_overflow_over_limit() {
-    let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("src")).unwrap();
-    // 110 個の pub fn を持つ 1 ファイル
-    let mut body = String::new();
-    for i in 0..110 {
-        body.push_str(&format!("pub fn f{i}() {{}}\n"));
-    }
-    fs::write(target.join("src/big.rs"), &body).unwrap();
-
-    let output = tmp.path().join("out");
-    generate(&target, &output, "project");
-
-    // `code-nodes/src.md` は overflow 案内、`code-nodes/src/_symbols.md` に全件
-    let src_node = fs::read_to_string(output.join("code-nodes/src.md")).unwrap();
-    assert!(src_node.contains("_symbols.md"));
-    let overflow = fs::read_to_string(output.join("code-nodes/src/_symbols.md")).unwrap();
-    assert!(overflow.contains("f0"));
-    assert!(overflow.contains("f109"));
-}
-
-/// 受け入れ基準: 任意ノード単体で理解可能（構造項目が揃う）
-#[test]
-fn each_node_is_self_contained() {
-    let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("src")).unwrap();
-    fs::write(target.join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
-    fs::write(target.join("src/lib.rs"), "pub fn foo() {}\npub struct S;").unwrap();
-    fs::create_dir_all(target.join("docs")).unwrap();
-    fs::write(
-        target.join("docs/note.md"),
-        "---\ntitle: Note\nsummary: Overview\n---\n# H\n\nbody.",
-    )
-    .unwrap();
-
-    let output = tmp.path().join("out");
-    generate(&target, &output, "project");
-
-    let code = fs::read_to_string(output.join("code-nodes/src.md")).unwrap();
-    assert!(code.contains("## Summary"));
-    assert!(code.contains("## Key files"));
-    assert!(code.contains("## Structure"));
-
-    // note-index はメタ情報のみ（本文は持たない）
-    let note_idx = fs::read_to_string(output.join("note-index/docs/note.md")).unwrap();
-    assert!(note_idx.contains("## Summary"));
-    assert!(note_idx.contains("## Key files"));
-    assert!(note_idx.contains("## Structure"));
-    assert!(note_idx.contains("## Original"));
-    assert!(!note_idx.contains("## Content"));
-
-    // imported は原本本文そのまま（body の見出しを保持、title 追加なし）
-    let imported = fs::read_to_string(output.join("imported/docs/note.md")).unwrap();
-    assert!(imported.contains("# H"));
-    assert!(imported.contains("body."));
-    assert!(imported.contains("索引"));
+    assert!(!idx2.contains("## Unresolved"));
+    let a = fs::read_to_string(output.join("notes/a.md")).unwrap();
+    assert!(a.contains("[b](b.md)"));
 }

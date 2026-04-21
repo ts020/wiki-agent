@@ -1,5 +1,5 @@
 [package]
-name = "repo-wiki"
+name = "md-wiki"
 version = "0.1.0"
 edition = "2024"
 

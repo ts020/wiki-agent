@@ -16,6 +16,8 @@ pub struct ScanConfig {
     pub root: PathBuf,
     /// 追加で除外したい絶対パス（出力先ディレクトリなど）
     pub extra_excluded: Vec<PathBuf>,
+    /// 再帰走査を行うかどうか。false のときは `root` 直下のみ。
+    pub recursive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,8 +38,13 @@ pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
         .filter_map(|p| std::path::absolute(p).ok())
         .collect();
 
-    let walker = WalkDir::new(root)
-        .follow_links(false)
+    let walker_builder = WalkDir::new(root).follow_links(false);
+    let walker_builder = if config.recursive {
+        walker_builder
+    } else {
+        walker_builder.max_depth(1)
+    };
+    let walker = walker_builder
         .into_iter()
         .filter_entry(|e| !should_prune(e, &extra_excluded));
 

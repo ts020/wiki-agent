@@ -257,6 +257,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-wiki"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -351,22 +367,6 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
-
-[[package]]
-name = "repo-wiki"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "toml",
- "tracing",
- "tracing-subscriber",
- "walkdir",
-]
 
 [[package]]
 name = "rustix"

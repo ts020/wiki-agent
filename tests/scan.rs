@@ -1,10 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use repo_wiki::scan::{ScanConfig, scan};
+use md_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
 
-fn rel_names(files: &[repo_wiki::scan::ScannedFile]) -> Vec<PathBuf> {
+fn rel_names(files: &[md_wiki::scan::ScannedFile]) -> Vec<PathBuf> {
     files.iter().map(|f| f.relative_path.clone()).collect()
 }
 
@@ -23,6 +23,7 @@ fn excludes_fixed_directories() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     assert_eq!(rel_names(&files), vec![PathBuf::from("keep.txt")]);
 }
@@ -41,6 +42,7 @@ fn excludes_hidden_dirs_except_wiki() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from(".wiki/y.txt")));
@@ -59,6 +61,7 @@ fn skips_files_larger_than_1_mib() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("small.txt")));
@@ -76,6 +79,7 @@ fn skips_files_with_null_byte() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("text.txt")));
@@ -94,6 +98,7 @@ fn skips_invalid_utf8() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("good.txt")));
@@ -112,10 +117,12 @@ fn returns_deterministic_order() {
     let files1 = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let files2 = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     assert_eq!(files1, files2);
     assert_eq!(
@@ -141,6 +148,7 @@ fn scans_nested_directories() {
     let files = scan(&ScanConfig {
         root: root.to_path_buf(),
         extra_excluded: Vec::new(),
+        recursive: true,
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("shallow.txt")));

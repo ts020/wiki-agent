@@ -1,311 +1,131 @@
+//! CLI 外周の挙動を検証する統合テスト。
+
 use std::fs;
+use std::path::Path;
+use std::process::Command;
 
-use std::collections::HashSet;
-
-use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
-use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
-use repo_wiki::link::resolve_all;
-use repo_wiki::notes::ingest_notes;
-use repo_wiki::relations::compute_relations;
-use repo_wiki::render::tags::build_tag_index;
-use repo_wiki::render::{WikiOutput, write_wiki};
-use repo_wiki::scan::{ScanConfig, scan};
 use tempfile::TempDir;
 
-fn run_generation(target: &std::path::Path, output: &std::path::Path, title: &str) {
-    let files = scan(&ScanConfig {
-        root: target.to_path_buf(),
-        extra_excluded: Vec::new(),
-    });
-    let tech_stack = detect_tech_stack(&files, target);
-    let entry_points = detect_entry_points(&files);
-    let test_layout = detect_test_layout(&files);
-    let notes = ingest_notes(&files, target);
-    let mut used = HashSet::new();
-    let mut nodes = build_code_nodes_with(&files, target, &mut used);
-    nodes.extend(build_note_nodes(notes, &mut used));
-    let (unresolved, graph) = resolve_all(&nodes);
-    let tag_index = build_tag_index(&nodes);
-    compute_relations(&mut nodes, &graph, &tag_index);
-    write_wiki(
-        output,
-        &WikiOutput {
-            project_title: title,
-            nodes: &nodes,
-            tech_stack: &tech_stack,
-            entry_points: &entry_points,
-            test_layout: &test_layout,
-            unresolved: &unresolved,
-        },
-    )
-    .unwrap();
+fn bin_path() -> &'static Path {
+    Path::new(env!("CARGO_BIN_EXE_md-wiki"))
+}
+
+fn run(args: &[&std::ffi::OsStr]) -> std::process::Output {
+    let output = Command::new(bin_path()).args(args).output().unwrap();
+    assert!(
+        output.status.success(),
+        "md-wiki failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    output
 }
 
 #[test]
-fn generates_index_overview_and_directory_nodes() {
-    let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("src/scan")).unwrap();
-    fs::write(
-        target.join("Cargo.toml"),
-        "[package]\nname = \"demo\"\n[dependencies]\nserde = \"1\"\n",
-    )
-    .unwrap();
-    fs::write(target.join("README.md"), "hello").unwrap();
-    fs::write(target.join("src/main.rs"), "fn main() {}").unwrap();
-    fs::write(target.join("src/scan/mod.rs"), "pub fn scan() {}").unwrap();
-    fs::create_dir(target.join("tests")).unwrap();
-    fs::write(target.join("tests/it.rs"), "").unwrap();
-
-    let output = tmp.path().join("out");
-    run_generation(&target, &output, "project");
-
-    let index = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(index.contains("# project"));
-    assert!(index.contains("## Tech stack"));
-    assert!(index.contains("Rust"));
-    assert!(index.contains("## Overview"));
-    assert!(index.contains("overview/tech-stack.md"));
-    assert!(index.contains("development/index.md"));
-    assert!(index.contains("code-nodes/_root.md"));
-
-    let tech = fs::read_to_string(output.join("overview/tech-stack.md")).unwrap();
-    assert!(tech.contains("# Tech stack"));
-    assert!(tech.contains("Cargo.toml"));
-    assert!(tech.contains("serde"));
-
-    let eps = fs::read_to_string(output.join("overview/entry-points.md")).unwrap();
-    assert!(eps.contains("src/main.rs"));
-
-    let tests = fs::read_to_string(output.join("overview/tests.md")).unwrap();
-    assert!(tests.contains("tests"));
-
-    let dev = fs::read_to_string(output.join("development/index.md")).unwrap();
-    assert!(dev.contains("cargo build"));
+fn cli_help_runs() {
+    let output = Command::new(bin_path()).arg("--help").output().unwrap();
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("md-wiki"),
+        "--help には md-wiki の記述が必要"
+    );
 }
 
 #[test]
-fn output_directory_inside_target_is_excluded_from_scan() {
+fn single_file_input_generates_wiki() {
     let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("code.rs"), "fn main() {}").unwrap();
+    let note = tmp.path().join("memo.md");
+    fs::write(&note, "# Memo\n\nsome body").unwrap();
 
-    let output = target.join("repo-wiki");
-    fs::create_dir_all(&output).unwrap();
-    fs::write(output.join("index.md"), "old").unwrap();
+    let out = tmp.path().join("wiki");
+    run(&[note.as_os_str(), "--out".as_ref(), out.as_os_str()]);
 
-    let output_abs = std::path::absolute(&output).unwrap();
-    let files = scan(&ScanConfig {
-        root: target.clone(),
-        extra_excluded: vec![output_abs],
-    });
-
-    let paths: Vec<_> = files.iter().map(|f| f.relative_path.clone()).collect();
-    assert!(paths.contains(&std::path::PathBuf::from("code.rs")));
-    assert!(!paths.iter().any(|p| p.starts_with("repo-wiki")));
+    assert!(out.join("index.md").exists());
+    assert!(out.join("notes/memo.md").exists());
 }
 
 #[test]
-fn ingests_notes_with_frontmatter_and_directory_convention() {
+fn directory_recursive_includes_nested_and_excludes_node_modules() {
     let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("docs")).unwrap();
-    fs::create_dir_all(target.join("src")).unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(input.join("deep")).unwrap();
+    fs::create_dir_all(input.join("node_modules")).unwrap();
+    fs::write(input.join("a.md"), "# A").unwrap();
+    fs::write(input.join("deep/b.md"), "# B").unwrap();
+    fs::write(input.join("node_modules/bad.md"), "# Bad").unwrap();
 
-    fs::write(target.join("README.md"), "# Project\n\nRoot readme.").unwrap();
-    fs::write(
-        target.join("docs/architecture.md"),
-        "---\ntitle: アーキテクチャ\ntags: [design]\n---\n\n# Overview\n\n本文。\n\n## Goals\n\n目標。",
-    )
-    .unwrap();
-    fs::write(
-        target.join("src/notes.md"),
-        "---\nwiki: true\ntitle: Inline note\n---\n\nInline.",
-    )
-    .unwrap();
-    fs::write(
-        target.join("src/skip.md"),
-        "---\nwiki: false\n---\nshould skip",
-    )
-    .unwrap();
-    fs::write(target.join("src/ambient.md"), "# just sits here").unwrap(); // 取り込まれない
+    let out = tmp.path().join("wiki");
+    run(&[
+        input.as_os_str(),
+        "--recursive".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
 
-    let output = tmp.path().join("out");
-    run_generation(&target, &output, "project");
-
-    let index = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(index.contains("## Notes"));
-    assert!(index.contains("note-index/README.md"));
-    assert!(index.contains("アーキテクチャ"));
-    assert!(index.contains("Inline note"));
-    assert!(!index.contains("ambient"));
-    assert!(!index.contains("should skip"));
-
-    // README 索引は本文コピーを持たず、原本リンクのみ
-    let readme_idx = fs::read_to_string(output.join("note-index/README.md")).unwrap();
-    assert!(readme_idx.contains("## Original"));
-    assert!(!readme_idx.contains("## Content"));
-    let readme_imported = fs::read_to_string(output.join("imported/README.md")).unwrap();
-    assert!(readme_imported.contains("Root readme."));
-
-    // docs/architecture.md の索引は見出しツリーだけ
-    let arch_idx = fs::read_to_string(output.join("note-index/docs/architecture.md")).unwrap();
-    assert!(arch_idx.contains("# アーキテクチャ"));
-    assert!(arch_idx.contains("Overview"));
-    assert!(arch_idx.contains("Goals"));
-    assert!(!arch_idx.contains("Content"));
-
-    // 本文は imported/ 側
-    let arch_imported = fs::read_to_string(output.join("imported/docs/architecture.md")).unwrap();
-    assert!(arch_imported.contains("本文。"));
-    assert!(arch_imported.contains("目標。"));
-
-    // wiki:true の外部 md も索引と原本に出力される
-    assert!(output.join("note-index/src/notes.md").exists());
-    assert!(output.join("imported/src/notes.md").exists());
-
-    // wiki:false のファイルは両方除外
-    assert!(!output.join("note-index/src/skip.md").exists());
-    assert!(!output.join("imported/src/skip.md").exists());
-    assert!(!output.join("note-index/src/ambient.md").exists());
-    assert!(!output.join("imported/src/ambient.md").exists());
+    assert!(out.join("notes/a.md").exists());
+    assert!(out.join("notes/deep/b.md").exists());
+    assert!(!out.join("notes/node_modules").exists());
 }
 
 #[test]
-fn resolves_wikilinks_in_note_body_and_lists_unresolved() {
+fn rejects_non_md_file_input() {
     let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("docs")).unwrap();
+    let bad = tmp.path().join("not-markdown.txt");
+    fs::write(&bad, "hi").unwrap();
 
-    fs::write(
-        target.join("docs/index.md"),
-        "links: [[architecture]], [[architecture#Goals]], [[architecture|plan]], ![[architecture]], [[missing]]",
-    )
-    .unwrap();
-    fs::write(
-        target.join("docs/architecture.md"),
-        "# Arch\n\n## Goals\n\nGoals.",
-    )
-    .unwrap();
-
-    let output = tmp.path().join("out");
-    run_generation(&target, &output, "project");
-
-    // wikilink は imported/ 側の本文で解決される
-    let imported = fs::read_to_string(output.join("imported/docs/index.md")).unwrap();
-    assert!(imported.contains("[architecture](architecture.md)"));
-    assert!(imported.contains("[architecture#Goals](architecture.md#goals)"));
-    assert!(imported.contains("[plan](architecture.md)"));
-    // embed は plain link に縮退する
-    assert!(imported.contains("[architecture](architecture.md)"));
-    // 未解決は原文 + (未解決)
-    assert!(imported.contains("[[missing]] (未解決)"));
-
-    let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
-    assert!(unresolved.contains("# Unresolved wikilinks"));
-    assert!(unresolved.contains("missing"));
-
-    let index_md = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(index_md.contains("Unresolved links"));
+    let out = tmp.path().join("wiki");
+    let output = Command::new(bin_path())
+        .args([bad.as_os_str(), "--out".as_ref(), out.as_os_str()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
 }
 
 #[test]
-fn generates_tag_index_including_nested_tags() {
+fn refuses_to_clean_non_md_wiki_directory() {
     let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("docs")).unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(input.join("a.md"), "# A").unwrap();
 
-    fs::write(
-        target.join("docs/login.md"),
-        "---\ntitle: Login\ntags: [auth/session, security]\n---\n",
-    )
-    .unwrap();
-    fs::write(
-        target.join("docs/perms.md"),
-        "---\ntitle: Perms\ntags: [auth, security]\n---\n",
-    )
-    .unwrap();
+    // 出力先に無関係なファイルが入っているケース
+    let out = tmp.path().join("out");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(out.join("user-file.txt"), "dont delete me").unwrap();
 
-    let output = tmp.path().join("out");
-    run_generation(&target, &output, "project");
-
-    // ネスト親タグにも集計される
-    let auth = fs::read_to_string(output.join("tags/auth.md")).unwrap();
-    assert!(auth.contains("Login"));
-    assert!(auth.contains("Perms"));
-
-    let auth_session = fs::read_to_string(output.join("tags/auth/session.md")).unwrap();
-    assert!(auth_session.contains("Login"));
-    assert!(!auth_session.contains("Perms"));
-
-    let security = fs::read_to_string(output.join("tags/security.md")).unwrap();
-    assert!(security.contains("Login"));
-    assert!(security.contains("Perms"));
-
-    // index からタグ索引へのリンク
-    let idx = fs::read_to_string(output.join("index.md")).unwrap();
-    assert!(idx.contains("## Tags"));
-    assert!(idx.contains("tags/auth.md"));
-    assert!(idx.contains("tags/auth/session.md"));
+    let output = Command::new(bin_path())
+        .args([
+            input.as_os_str(),
+            "--recursive".as_ref(),
+            "--out".as_ref(),
+            out.as_os_str(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "md-wiki 以外のディレクトリを掃除しようとしたらエラー終了すべき"
+    );
+    // ユーザのファイルが残っていることを確認
+    assert!(out.join("user-file.txt").exists());
 }
 
 #[test]
-fn emits_related_backlinks_and_read_next_sections() {
+fn wiki_false_frontmatter_excludes_note() {
     let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(target.join("docs")).unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(input.join("keep.md"), "# Keep").unwrap();
+    fs::write(input.join("skip.md"), "---\nwiki: false\n---\n# Skip").unwrap();
 
-    fs::write(
-        target.join("docs/alpha.md"),
-        "---\ntitle: Alpha\ntags: [shared]\n---\n\nSee [[beta]].",
-    )
-    .unwrap();
-    fs::write(
-        target.join("docs/beta.md"),
-        "---\ntitle: Beta\ntags: [shared]\nrelated: [alpha]\n---\n",
-    )
-    .unwrap();
-    fs::write(
-        target.join("docs/gamma.md"),
-        "---\ntitle: Gamma\ntags: [shared]\n---\n",
-    )
-    .unwrap();
+    let out = tmp.path().join("wiki");
+    run(&[
+        input.as_os_str(),
+        "--recursive".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
 
-    let output = tmp.path().join("out");
-    run_generation(&target, &output, "project");
-
-    let alpha = fs::read_to_string(output.join("note-index/docs/alpha.md")).unwrap();
-    // alpha -> beta の wikilink があるので Related に beta
-    assert!(alpha.contains("## Related"));
-    assert!(alpha.contains("Beta"));
-    // beta -> alpha の related があるので Backlinks に beta
-    assert!(alpha.contains("## Backlinks"));
-    // 同タグの gamma が Read next に出る
-    assert!(alpha.contains("## Read next"));
-    assert!(alpha.contains("Gamma"));
-
-    let beta = fs::read_to_string(output.join("note-index/docs/beta.md")).unwrap();
-    // frontmatter.related で alpha を参照するので forward link が graph に載る
-    assert!(beta.contains("## Related"));
-    assert!(beta.contains("Alpha"));
-    // alpha -> beta の backward link
-    assert!(beta.contains("## Backlinks"));
-}
-
-#[test]
-fn rerun_clears_previous_output() {
-    let tmp = TempDir::new().unwrap();
-    let target = tmp.path().join("project");
-    fs::create_dir_all(&target).unwrap();
-    fs::write(target.join("a.txt"), "x").unwrap();
-
-    let output = tmp.path().join("out");
-    fs::create_dir_all(&output).unwrap();
-    fs::write(output.join("stale.md"), "old").unwrap();
-
-    run_generation(&target, &output, "project");
-
-    assert!(!output.join("stale.md").exists());
-    assert!(output.join("index.md").exists());
+    assert!(out.join("notes/keep.md").exists());
+    assert!(!out.join("notes/skip.md").exists());
 }

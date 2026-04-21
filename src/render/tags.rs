@@ -15,11 +15,8 @@ pub struct TagIndex {
 pub fn build_tag_index(nodes: &[Node]) -> TagIndex {
     let mut map: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
     for n in nodes {
-        let Some(note) = &n.note else {
-            continue;
-        };
-        for tag in &note.frontmatter.tags {
-            let norm = tag.trim();
+        for tag in &n.note.frontmatter.tags {
+            let norm: &str = tag.trim();
             if norm.is_empty() {
                 continue;
             }

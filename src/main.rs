@@ -2,28 +2,31 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
-use repo_wiki::build::{build_code_nodes_with, build_note_nodes};
-use repo_wiki::extract::{detect_entry_points, detect_tech_stack, detect_test_layout};
-use repo_wiki::link::resolve_all;
-use repo_wiki::notes::ingest_notes;
-use repo_wiki::relations::compute_relations;
-use repo_wiki::render::tags::build_tag_index;
-use repo_wiki::render::{WikiOutput, write_wiki};
-use repo_wiki::scan::{ScanConfig, scan};
+use md_wiki::build::build_nodes;
+use md_wiki::link::resolve_all;
+use md_wiki::notes::ingest_notes;
+use md_wiki::relations::compute_relations;
+use md_wiki::render::tags::build_tag_index;
+use md_wiki::render::{WikiOutput, write_wiki};
+use md_wiki::scan::{ScanConfig, scan};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "repo-wiki",
+    name = "md-wiki",
     version,
-    about = "Generate an explorable Markdown wiki tree from a codebase"
+    about = "Markdown ファイルを投げ込むと育つ個人 wiki ジェネレータ"
 )]
 struct Cli {
-    /// 走査対象ディレクトリ（未指定時はカレントディレクトリ）
-    target: Option<PathBuf>,
+    /// 入力（`.md` ファイル、またはディレクトリ）
+    input: PathBuf,
+
+    /// ディレクトリ入力時に再帰的に走査する
+    #[arg(short, long)]
+    recursive: bool,
 
     /// 出力先ディレクトリ
-    #[arg(short, long, default_value = "./repo-wiki")]
-    output: PathBuf,
+    #[arg(short, long, default_value = "./md-wiki")]
+    out: PathBuf,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -34,57 +37,75 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
 
-    let output_abs = std::path::absolute(&cli.output).unwrap_or_else(|_| cli.output.clone());
-    let files = scan(&ScanConfig {
-        root: target.clone(),
-        extra_excluded: vec![output_abs],
-    });
+    if !cli.input.exists() {
+        anyhow::bail!("input does not exist: {}", cli.input.display());
+    }
 
-    let project_title = target
-        .canonicalize()
-        .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "repo-wiki".to_string());
+    let out_abs = std::path::absolute(&cli.out).unwrap_or_else(|_| cli.out.clone());
 
-    let tech_stack = detect_tech_stack(&files, &target);
-    let entry_points = detect_entry_points(&files);
-    let test_layout = detect_test_layout(&files);
-    let notes_data = ingest_notes(&files, &target);
+    let (root, files) = if cli.input.is_file() {
+        if cli.input.extension().and_then(|s| s.to_str()) != Some("md") {
+            anyhow::bail!(
+                "file input must have .md extension: {}",
+                cli.input.display()
+            );
+        }
+        let parent = cli
+            .input
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let name = cli.input.file_name().unwrap().to_os_string();
+        let files = vec![md_wiki::scan::ScannedFile {
+            relative_path: PathBuf::from(&name),
+            size: std::fs::metadata(&cli.input).map(|m| m.len()).unwrap_or(0),
+        }];
+        (parent, files)
+    } else {
+        let files = scan(&ScanConfig {
+            root: cli.input.clone(),
+            extra_excluded: vec![out_abs.clone()],
+            recursive: cli.recursive,
+        });
+        (cli.input.clone(), files)
+    };
 
-    let mut used_paths = std::collections::HashSet::new();
-    let mut nodes = build_code_nodes_with(&files, &target, &mut used_paths);
-    nodes.extend(build_note_nodes(notes_data, &mut used_paths));
+    let project_title = if cli.input.is_file() {
+        cli.input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(String::from)
+            .unwrap_or_else(|| "md-wiki".to_string())
+    } else {
+        root.canonicalize()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "md-wiki".to_string())
+    };
+
+    let notes_data = ingest_notes(&files, &root);
+
+    let mut nodes = build_nodes(notes_data);
     let (unresolved, graph) = resolve_all(&nodes);
     let tag_index = build_tag_index(&nodes);
     compute_relations(&mut nodes, &graph, &tag_index);
     write_wiki(
-        &cli.output,
+        &cli.out,
         &WikiOutput {
             project_title: &project_title,
             nodes: &nodes,
-            tech_stack: &tech_stack,
-            entry_points: &entry_points,
-            test_layout: &test_layout,
             unresolved: &unresolved,
         },
     )?;
 
-    let note_count = nodes
-        .iter()
-        .filter(|n| matches!(n.kind, repo_wiki::model::NodeKind::NoteDerived))
-        .count();
     tracing::info!(
-        target = %target.display(),
-        output = %cli.output.display(),
+        input = %cli.input.display(),
+        output = %cli.out.display(),
         files = files.len(),
-        nodes = nodes.len(),
-        notes = note_count,
-        languages = tech_stack.languages.len(),
-        entry_points = entry_points.len(),
+        notes = nodes.len(),
         unresolved_links = unresolved.len(),
-        "wiki generation complete"
+        "md-wiki generation complete"
     );
     Ok(())
 }

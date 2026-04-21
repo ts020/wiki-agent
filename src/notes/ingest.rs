@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use super::frontmatter::{self, Frontmatter};
 use super::headings::{self, Heading};
@@ -13,7 +13,9 @@ pub struct NoteData {
     pub body: String,
 }
 
-/// 走査済みファイルから §7.2 の取り込みルールに従い手書きノートを収集する。
+/// 走査済みファイルから取り込み対象のノートを収集する（§7.2）。
+/// `.md` 以外はスキップ。フロントマターに `wiki: false` が書かれているものだけ除外し、
+/// それ以外はすべて取り込む。
 pub fn ingest_notes(scanned: &[ScannedFile], target_root: &Path) -> Vec<NoteData> {
     let mut out = Vec::new();
     for f in scanned {
@@ -35,7 +37,7 @@ pub fn ingest_notes(scanned: &[ScannedFile], target_root: &Path) -> Vec<NoteData
         let (fm_opt, body) = frontmatter::split(&content);
         let fm = fm_opt.unwrap_or_default();
 
-        if !should_ingest(&f.relative_path, &fm) {
+        if !should_ingest(&fm) {
             continue;
         }
 
@@ -51,20 +53,9 @@ pub fn ingest_notes(scanned: &[ScannedFile], target_root: &Path) -> Vec<NoteData
     out
 }
 
-/// §7.2 の優先順に従って取り込み可否を判定する。
-pub fn should_ingest(rel: &Path, fm: &Frontmatter) -> bool {
-    if let Some(flag) = fm.wiki {
-        return flag;
-    }
-    if rel == Path::new("README.md") {
-        return true;
-    }
-    if let Some(Component::Normal(first)) = rel.components().next()
-        && let Some(s) = first.to_str()
-    {
-        return matches!(s, "docs" | "notes" | ".wiki");
-    }
-    false
+/// §7.2: `wiki: false` だけを除外し、それ以外は取り込む。
+pub fn should_ingest(fm: &Frontmatter) -> bool {
+    fm.wiki != Some(false)
 }
 
 /// フロントマター除去後の本文から「最初の段落」を抽出する。
@@ -104,56 +95,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wiki_true_always_includes() {
-        let fm = Frontmatter {
-            wiki: Some(true),
-            ..Default::default()
-        };
-        assert!(should_ingest(Path::new("random/path.md"), &fm));
-    }
-
-    #[test]
-    fn wiki_false_always_excludes() {
+    fn wiki_false_excludes() {
         let fm = Frontmatter {
             wiki: Some(false),
             ..Default::default()
         };
-        assert!(!should_ingest(Path::new("docs/foo.md"), &fm));
+        assert!(!should_ingest(&fm));
     }
 
     #[test]
-    fn root_readme_included_by_default() {
-        assert!(should_ingest(
-            Path::new("README.md"),
-            &Frontmatter::default()
-        ));
+    fn wiki_true_includes() {
+        let fm = Frontmatter {
+            wiki: Some(true),
+            ..Default::default()
+        };
+        assert!(should_ingest(&fm));
     }
 
     #[test]
-    fn sub_readme_not_auto_ingested() {
-        assert!(!should_ingest(
-            Path::new("pkg/README.md"),
-            &Frontmatter::default()
-        ));
-    }
-
-    #[test]
-    fn docs_notes_wiki_dirs_included() {
-        for path in ["docs/x.md", "notes/x.md", ".wiki/x.md", "docs/a/b.md"] {
-            assert!(
-                should_ingest(Path::new(path), &Frontmatter::default()),
-                "{} should be included",
-                path
-            );
-        }
-    }
-
-    #[test]
-    fn other_locations_excluded() {
-        assert!(!should_ingest(
-            Path::new("src/foo.md"),
-            &Frontmatter::default()
-        ));
+    fn no_wiki_flag_includes() {
+        assert!(should_ingest(&Frontmatter::default()));
     }
 
     #[test]
