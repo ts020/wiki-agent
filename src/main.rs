@@ -96,6 +96,7 @@ fn main() -> anyhow::Result<()> {
             project_title: &project_title,
             nodes: &nodes,
             unresolved: &unresolved,
+            graph: &graph,
         },
     )?;
 

@@ -30,6 +30,7 @@ fn generate_dir(target: &Path, output: &Path, title: &str, recursive: bool) {
             project_title: title,
             nodes: &nodes,
             unresolved: &unresolved,
+            graph: &graph,
         },
     )
     .unwrap();
@@ -134,6 +135,75 @@ fn wikilinks_resolve_or_collect_unresolved() {
 
     let unresolved = fs::read_to_string(output.join("_unresolved.md")).unwrap();
     assert!(unresolved.contains("missing"));
+}
+
+/// AC-09: 見出し索引。全ノートの h1-h2 がアンカー付きで列挙される
+#[test]
+fn heading_index_lists_h1_and_h2_with_anchors() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(
+        target.join("a.md"),
+        "# Top\n\nbody\n\n## Sub section\n\nmore",
+    )
+    .unwrap();
+    fs::write(target.join("b.md"), "# B-Top\n\n### Deep\n\n## B-Sub").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let headings = fs::read_to_string(output.join("headings/index.md")).unwrap();
+    assert!(headings.contains("Top"));
+    assert!(headings.contains("Sub section"));
+    assert!(headings.contains("B-Sub"));
+    // h3 は含めない
+    assert!(!headings.contains("Deep"));
+    // アンカー形式の確認
+    assert!(headings.contains("#top"));
+    assert!(headings.contains("#sub-section"));
+}
+
+/// AC-10: リンク索引。ノート間の参照関係が列挙される
+#[test]
+fn link_index_lists_forward_references() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("a.md"), "# A\n\nsee [[b]] and [[c]]").unwrap();
+    fs::write(target.join("b.md"), "# B\n\nsee [[c]]").unwrap();
+    fs::write(target.join("c.md"), "# C").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let links = fs::read_to_string(output.join("links/index.md")).unwrap();
+    assert!(links.contains("A"));
+    assert!(links.contains("B"));
+    // a → b, c / b → c が出る
+    assert!(links.contains("b.md"));
+    assert!(links.contains("c.md"));
+}
+
+/// tags/index.md が全タグの入口として生成される
+#[test]
+fn tags_index_lists_all_tags() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(
+        target.join("a.md"),
+        "---\ntags: [alpha, beta/sub]\n---\n# A",
+    )
+    .unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let index = fs::read_to_string(output.join("tags/index.md")).unwrap();
+    assert!(index.contains("alpha"));
+    assert!(index.contains("beta"));
+    assert!(index.contains("beta/sub"));
 }
 
 /// AC-08: タグ索引。ネストタグは親・子の双方に登場する

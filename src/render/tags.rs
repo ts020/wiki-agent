@@ -55,6 +55,24 @@ pub fn tag_page_path(tag: &str) -> PathBuf {
     out
 }
 
+/// `tags/index.md` の本文を生成する。全タグの入口ページ。
+pub fn render_tag_index_page(tag_index: &TagIndex) -> String {
+    let mut s = String::new();
+    let _ = writeln!(&mut s, "# Tags");
+    s.push('\n');
+    if tag_index.entries.is_empty() {
+        let _ = writeln!(&mut s, "_(no tags)_");
+        return s;
+    }
+    let from = PathBuf::from("tags/index.md");
+    for (tag, paths) in &tag_index.entries {
+        let page = tag_page_path(tag);
+        let link = relative_link(&from, &page);
+        let _ = writeln!(&mut s, "- [`{tag}`]({link}) ({} 件)", paths.len());
+    }
+    s
+}
+
 pub fn render_tag_page(tag: &str, node_paths: &[PathBuf], nodes: &[Node]) -> String {
     let mut s = String::new();
     let _ = writeln!(&mut s, "# Tag: `{tag}`");

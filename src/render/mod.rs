@@ -1,4 +1,6 @@
+pub mod headings;
 pub mod index;
+pub mod links;
 pub mod node;
 pub mod paths;
 pub mod tags;
@@ -9,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::link::{Resolver, UnresolvedLink};
+use crate::link::{LinkGraph, Resolver, UnresolvedLink};
 use crate::model::Node;
 
 /// 生成物一式を出力ルートへ書き出す。毎回フル再生成（FR-03）。
@@ -17,6 +19,7 @@ pub struct WikiOutput<'a> {
     pub project_title: &'a str,
     pub nodes: &'a [Node],
     pub unresolved: &'a [UnresolvedLink],
+    pub graph: &'a LinkGraph,
 }
 
 pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
@@ -44,6 +47,11 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
 
     // タグ索引
     let tag_index = tags::build_tag_index(out.nodes);
+    write_file(
+        output_root,
+        "tags/index.md",
+        &tags::render_tag_index_page(&tag_index),
+    )?;
     for (tag, paths) in &tag_index.entries {
         let path = tags::tag_page_path(tag);
         let body = tags::render_tag_page(tag, paths, out.nodes);
@@ -54,6 +62,20 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
         }
         fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
     }
+
+    // 見出し索引
+    write_file(
+        output_root,
+        "headings/index.md",
+        &headings::render_headings_index(out.nodes),
+    )?;
+
+    // リンク索引
+    write_file(
+        output_root,
+        "links/index.md",
+        &links::render_links_index(out.nodes, out.graph),
+    )?;
 
     write_file(
         output_root,

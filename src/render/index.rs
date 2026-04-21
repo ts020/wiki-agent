@@ -1,5 +1,7 @@
 use std::fmt::Write;
+use std::path::PathBuf;
 
+use super::paths::relative_link;
 use super::tags::TagIndex;
 use crate::link::UnresolvedLink;
 use crate::model::Node;
@@ -24,13 +26,21 @@ pub fn render_index(
 
     let _ = writeln!(&mut s, "## Sections");
     s.push('\n');
-    let _ = writeln!(&mut s, "- [Notes](notes/)");
-    if !tag_index.entries.is_empty() {
-        let _ = writeln!(&mut s, "- [Tags](tags/index.md)");
-    }
+    let _ = writeln!(&mut s, "- [Tags](tags/index.md)");
     let _ = writeln!(&mut s, "- [Headings](headings/index.md)");
     let _ = writeln!(&mut s, "- [Links](links/index.md)");
     s.push('\n');
+
+    if !nodes.is_empty() {
+        let _ = writeln!(&mut s, "## Notes");
+        s.push('\n');
+        let from = PathBuf::from("index.md");
+        for n in nodes {
+            let link = relative_link(&from, &n.output_path);
+            let _ = writeln!(&mut s, "- [{}]({})", n.title, link);
+        }
+        s.push('\n');
+    }
 
     if !unresolved.is_empty() {
         let _ = writeln!(
