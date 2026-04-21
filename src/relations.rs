@@ -2,13 +2,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::link::LinkGraph;
-use crate::model::Node;
+use crate::model::{Node, iter_pages};
 use crate::render::tags::TagIndex;
 
 const RELATED_MAX: usize = 3;
 const RELATED_MIN_SHARED_TAGS: usize = 2;
 
+type NodeSnapshot = (PathBuf, Vec<String>, Vec<String>, Vec<PathBuf>);
+type ComputeResult = (Vec<PathBuf>, BTreeMap<PathBuf, Vec<PathBuf>>);
+
 /// 全ノートに対して related / backlinks を計算して書き戻す（FR-10, FR-11）。
+/// Backlinks は断片解像度（各ページ単位）、Related は入口ページ単位。
 pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &TagIndex) {
     let tags_by_node: BTreeMap<PathBuf, BTreeSet<String>> = nodes
         .iter()
@@ -22,38 +26,37 @@ pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &Tag
 
     let known_paths: BTreeSet<PathBuf> = nodes.iter().map(|n| n.output_path.clone()).collect();
 
-    let snapshot: Vec<(PathBuf, Vec<String>, Vec<String>)> = nodes
+    let snapshot: Vec<NodeSnapshot> = nodes
         .iter()
         .map(|n| {
+            let page_paths: Vec<PathBuf> =
+                iter_pages(n).into_iter().map(|p| p.output_path).collect();
             (
                 n.output_path.clone(),
                 n.note.frontmatter.related.clone(),
                 n.note.frontmatter.tags.clone(),
+                page_paths,
             )
         })
         .collect();
 
-    let mut results: Vec<(Vec<PathBuf>, Vec<PathBuf>)> = Vec::with_capacity(nodes.len());
-    for (out_path, fm_related, tags) in &snapshot {
-        let backlinks: Vec<PathBuf> = graph.backward_of(out_path);
-        let related = compute_related(
-            out_path,
-            fm_related,
-            tags,
-            graph,
-            &tags_by_node,
-            &known_paths,
-        );
+    // (related, backlinks-map)
+    let mut results: Vec<ComputeResult> = Vec::with_capacity(nodes.len());
+    for (entry, fm_related, tags, pages) in &snapshot {
+        let related = compute_related(entry, fm_related, tags, graph, &tags_by_node, &known_paths);
+        let mut backlinks: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        for page in pages {
+            let refs: Vec<PathBuf> = graph.backward_of(page);
+            if !refs.is_empty() {
+                backlinks.insert(page.clone(), refs);
+            }
+        }
         results.push((related, backlinks));
     }
 
     for (n, (related, backlinks)) in nodes.iter_mut().zip(results.into_iter()) {
         n.related = related;
-        // F-2 時点では入口ページ単位でまとめて付与。F-4 で断片解像度に展開する。
-        n.backlinks.clear();
-        if !backlinks.is_empty() {
-            n.backlinks.insert(n.output_path.clone(), backlinks);
-        }
+        n.backlinks = backlinks;
     }
 }
 
@@ -69,8 +72,6 @@ fn compute_related(
     let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
     let mut out: Vec<PathBuf> = Vec::new();
 
-    // フロントマター related（記載順を保持）。graph.forward に含まれるものから
-    // 出力パスを取得するのが確実。グラフに無ければスキップ。
     let forward = graph.forward_of(self_path);
     let forward_set: BTreeSet<PathBuf> = forward.iter().cloned().collect();
     for entry in fm_related {
@@ -83,7 +84,6 @@ fn compute_related(
         }
     }
 
-    // 共通タグによる推定（最大 3 件）
     if !tags.is_empty() {
         let self_tags: BTreeSet<&str> = tags.iter().map(String::as_str).collect();
         let mut scored: Vec<(usize, PathBuf)> = Vec::new();
@@ -119,7 +119,6 @@ fn resolve_related_path(
     if known_paths.contains(&as_path) {
         return Some(as_path);
     }
-    // forward グラフに含まれ、basename が一致するエッジを探す
     for p in forward_set {
         if p.file_stem().and_then(|s| s.to_str()) == Some(entry) {
             return Some(p.clone());

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use super::paths::relative_link;
 use super::tags::TagIndex;
 use crate::link::UnresolvedLink;
-use crate::model::Node;
+use crate::model::{Node, PageKind, iter_pages};
 
 /// ルート `index.md` の本文を生成する（FR-12）。
 pub fn render_index(
@@ -17,9 +17,16 @@ pub fn render_index(
     let _ = writeln!(&mut s, "# {project_title}");
     s.push('\n');
 
+    let fragment_count: usize = nodes
+        .iter()
+        .flat_map(iter_pages)
+        .filter(|p| matches!(p.kind, PageKind::H2Leaf | PageKind::H3Leaf))
+        .count();
+
     let _ = writeln!(&mut s, "## Summary");
     s.push('\n');
     let _ = writeln!(&mut s, "- Notes: {}", nodes.len());
+    let _ = writeln!(&mut s, "- Fragments: {fragment_count}");
     let _ = writeln!(&mut s, "- Tags: {}", tag_index.entries.len());
     let _ = writeln!(&mut s, "- Unresolved links: {}", unresolved.len());
     s.push('\n');

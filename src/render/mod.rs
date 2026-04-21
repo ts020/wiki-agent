@@ -12,7 +12,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::link::{LinkGraph, Resolver, UnresolvedLink};
-use crate::model::Node;
+use crate::model::{Node, iter_pages};
 
 /// 生成物一式を出力ルートへ書き出す。毎回フル再生成（FR-03）。
 pub struct WikiOutput<'a> {
@@ -27,11 +27,14 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
     fs::create_dir_all(output_root)
         .with_context(|| format!("failed to create {}", output_root.display()))?;
 
-    let titles: std::collections::BTreeMap<std::path::PathBuf, String> = out
-        .nodes
-        .iter()
-        .map(|n| (n.output_path.clone(), n.title.clone()))
-        .collect();
+    // タイトル表は全ノートの全ページ分を含める（Backlinks のタイトル解決に必要）。
+    let mut titles: std::collections::BTreeMap<std::path::PathBuf, String> =
+        std::collections::BTreeMap::new();
+    for n in out.nodes {
+        for page in iter_pages(n) {
+            titles.insert(page.output_path, page.title);
+        }
+    }
 
     let resolver = Resolver::build(out.nodes);
 

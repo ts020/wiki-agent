@@ -4,8 +4,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-use super::resolver::{Resolver, UnresolvedLink};
-use super::slug::slugify;
+use super::resolver::{Resolution, Resolver, UnresolvedLink};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WikiLink {
@@ -83,25 +82,37 @@ pub fn resolve_in(
             None => link.target.clone(),
         });
 
-        if let Some(target_path) = resolver.resolve(&link.target, anchor) {
-            edges.push(target_path.clone());
-            let mut link_text = render_relative(from, &target_path);
-            if let Some(h) = &link.heading {
-                link_text.push('#');
-                link_text.push_str(&slugify(h));
+        let resolution =
+            resolver.resolve_with_heading(&link.target, link.heading.as_deref(), anchor);
+        match resolution {
+            Resolution::Entry(target_path) => {
+                edges.push(target_path.clone());
+                let link_text = render_relative(from, &target_path);
+                out.replace_range(range, &format!("[{display}]({link_text})"));
             }
-            let md = format!("[{display}]({link_text})");
-            out.replace_range(range, &md);
-        } else {
-            let original = &body[range.clone()];
-            let replacement = format!("{original} (未解決)");
-            out.replace_range(range, &replacement);
-            unresolved.push(UnresolvedLink {
-                source: from.to_path_buf(),
-                target: link.target,
-                heading: link.heading,
-                alias: link.alias,
-            });
+            Resolution::EntryAnchor(target_path, slug) => {
+                edges.push(target_path.clone());
+                let mut link_text = render_relative(from, &target_path);
+                link_text.push('#');
+                link_text.push_str(&slug);
+                out.replace_range(range, &format!("[{display}]({link_text})"));
+            }
+            Resolution::Page(page_path) => {
+                edges.push(page_path.clone());
+                let link_text = render_relative(from, &page_path);
+                out.replace_range(range, &format!("[{display}]({link_text})"));
+            }
+            Resolution::Missing => {
+                let original = &body[range.clone()];
+                let replacement = format!("{original} (未解決)");
+                out.replace_range(range, &replacement);
+                unresolved.push(UnresolvedLink {
+                    source: from.to_path_buf(),
+                    target: link.target,
+                    heading: link.heading,
+                    alias: link.alias,
+                });
+            }
         }
     }
     (out, unresolved, edges)

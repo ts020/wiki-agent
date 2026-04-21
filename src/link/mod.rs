@@ -9,7 +9,7 @@ pub use wikilink::{WikiLink, find_all};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::model::Node;
+use crate::model::{Node, iter_pages};
 
 /// ノード間リンクの双方向グラフ。
 #[derive(Debug, Default)]
@@ -50,28 +50,35 @@ impl LinkGraph {
 
 /// すべてのノートの本文と `related` フィールドを解析して
 /// 未解決一覧とリンクグラフを作る。本文は mutate しない。
+///
+/// F-4 以降: LinkGraph の頂点はページ（入口・殻・断片・子断片）単位。
+/// `[[Foo]]` は Foo の入口ページへ、`[[Foo#h2]]` は該当 h2 断片／殻へ張られる。
 pub fn resolve_all(nodes: &[Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
     let resolver = Resolver::build(nodes);
-    let known_paths: HashSet<PathBuf> = nodes.iter().map(|n| n.output_path.clone()).collect();
+    let known_entries: HashSet<PathBuf> = nodes.iter().map(|n| n.output_path.clone()).collect();
     let mut graph = LinkGraph::default();
     let mut unresolved = Vec::new();
 
     for n in nodes.iter() {
-        let output = &n.output_path;
+        let entry = &n.output_path;
 
-        // フロントマターの related
-        for entry in &n.note.frontmatter.related {
-            if let Some(target) = resolve_related_entry(entry, output, &resolver, &known_paths) {
-                graph.add_edge(output, &target);
+        // フロントマターの related は入口 → 入口のエッジ
+        for entry_name in &n.note.frontmatter.related {
+            if let Some(target) =
+                resolve_related_entry(entry_name, entry, &resolver, &known_entries)
+            {
+                graph.add_edge(entry, &target);
             }
         }
 
-        // 本文の wikilink
-        let (_rewritten, mut us, edges) =
-            wikilink::resolve_in(&n.note.body, output, output, &resolver);
-        unresolved.append(&mut us);
-        for edge in edges {
-            graph.add_edge(output, &edge);
+        // 各ページの本文から wikilink を抽出
+        for page in iter_pages(n) {
+            let (_rewritten, mut us, edges) =
+                wikilink::resolve_in(&page.raw_body, &page.output_path, entry, &resolver);
+            unresolved.append(&mut us);
+            for edge in edges {
+                graph.add_edge(&page.output_path, &edge);
+            }
         }
     }
 

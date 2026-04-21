@@ -4,45 +4,51 @@ use std::path::PathBuf;
 
 use super::paths::relative_link;
 use crate::link::LinkGraph;
-use crate::model::Node;
+use crate::model::{Node, iter_pages};
 
 /// `links/index.md` の本文を生成する（FR-09）。
-/// 各ノートの「このノートが参照しているノート」を一覧化する。
-/// 未解決リンクは `_unresolved.md` に集約するためここには含めない。
+/// 断片解像度で各ページの参照先を列挙する。未解決リンクは含めない。
 pub fn render_links_index(nodes: &[Node], graph: &LinkGraph) -> String {
     let mut s = String::new();
     let _ = writeln!(&mut s, "# Links");
     s.push('\n');
 
     let from = PathBuf::from("links/index.md");
-    let titles: BTreeMap<PathBuf, String> = nodes
-        .iter()
-        .map(|n| (n.output_path.clone(), n.title.clone()))
-        .collect();
+
+    // ページタイトル表: 出力パス → タイトル。全ノートの全ページ分。
+    let mut titles: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut ordered_pages: Vec<(PathBuf, String)> = Vec::new();
+    for n in nodes {
+        for page in iter_pages(n) {
+            titles.insert(page.output_path.clone(), page.title.clone());
+            ordered_pages.push((page.output_path, page.title));
+        }
+    }
+    ordered_pages.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut any = false;
-    for n in nodes {
-        let forward = graph.forward_of(&n.output_path);
+    for (page_path, title) in &ordered_pages {
+        let forward = graph.forward_of(page_path);
         if forward.is_empty() {
             continue;
         }
         any = true;
-        let self_link = relative_link(&from, &n.output_path);
-        let _ = writeln!(&mut s, "## [{}]({})", n.title, self_link);
+        let self_link = relative_link(&from, page_path);
+        let _ = writeln!(&mut s, "## [{title}]({self_link})");
         s.push('\n');
         for target in forward {
-            let title = titles
+            let target_title = titles
                 .get(&target)
                 .cloned()
                 .unwrap_or_else(|| target.display().to_string());
             let link = relative_link(&from, &target);
-            let _ = writeln!(&mut s, "- [{title}]({link})");
+            let _ = writeln!(&mut s, "- [{target_title}]({link})");
         }
         s.push('\n');
     }
 
     if !any {
-        let _ = writeln!(&mut s, "_(no links between notes)_");
+        let _ = writeln!(&mut s, "_(no links between pages)_");
     }
     s
 }
