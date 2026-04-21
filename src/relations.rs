@@ -49,7 +49,11 @@ pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &Tag
 
     for (n, (related, backlinks)) in nodes.iter_mut().zip(results.into_iter()) {
         n.related = related;
-        n.backlinks = backlinks;
+        // F-2 時点では入口ページ単位でまとめて付与。F-4 で断片解像度に展開する。
+        n.backlinks.clear();
+        if !backlinks.is_empty() {
+            n.backlinks.insert(n.output_path.clone(), backlinks);
+        }
     }
 }
 

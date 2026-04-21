@@ -64,10 +64,12 @@ fn parse_content(s: &str, embed: bool) -> WikiLink {
 }
 
 /// 本文中の wikilink を解決した新しい本文、未解決一覧、解決済みリンクの
-/// ターゲット一覧を返す。ターゲット一覧は Phase 8 のリンクグラフ構築に使う。
+/// ターゲット一覧を返す。`from` は現ページの出力相対パス（相対リンク生成に使用）、
+/// `anchor` は参照元ノートの入口ページ（Resolver のディレクトリ近接判定に使用）。
 pub fn resolve_in(
     body: &str,
     from: &Path,
+    anchor: &Path,
     resolver: &Resolver,
 ) -> (String, Vec<UnresolvedLink>, Vec<std::path::PathBuf>) {
     let links = find_all(body);
@@ -75,14 +77,13 @@ pub fn resolve_in(
     let mut unresolved = Vec::new();
     let mut edges = Vec::new();
 
-    // 右側から置換して offset 崩れを防ぐ
     for (range, link) in links.into_iter().rev() {
         let display = link.alias.clone().unwrap_or_else(|| match &link.heading {
             Some(h) => format!("{}#{}", link.target, h),
             None => link.target.clone(),
         });
 
-        if let Some(target_path) = resolver.resolve(&link.target, from) {
+        if let Some(target_path) = resolver.resolve(&link.target, anchor) {
             edges.push(target_path.clone());
             let mut link_text = render_relative(from, &target_path);
             if let Some(h) = &link.heading {

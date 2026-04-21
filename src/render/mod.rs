@@ -1,7 +1,7 @@
+pub mod fragment;
 pub mod headings;
 pub mod index;
 pub mod links;
-pub mod node;
 pub mod paths;
 pub mod tags;
 pub mod unresolved;
@@ -35,14 +35,17 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
 
     let resolver = Resolver::build(out.nodes);
 
+    // ノートごとに入口 + 断片ページを書き出す
     for n in out.nodes {
-        let path = output_root.join(&n.output_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
+        for page in fragment::render_pages(n, &titles, &resolver) {
+            let abs = output_root.join(&page.output_path);
+            if let Some(parent) = abs.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+            }
+            fs::write(&abs, page.body)
+                .with_context(|| format!("failed to write {}", abs.display()))?;
         }
-        fs::write(&path, node::render_node(n, &titles, &resolver))
-            .with_context(|| format!("failed to write {}", path.display()))?;
     }
 
     // タグ索引
@@ -111,11 +114,11 @@ fn clean_output(output_root: &Path) -> Result<()> {
     }
 
     let looks_like_ours =
-        output_root.join("index.md").exists() || output_root.join("notes").exists();
+        output_root.join("index.md").exists() || output_root.join("fragments").exists();
     if !looks_like_ours {
         anyhow::bail!(
             "refusing to clean {}: does not look like a md-wiki output directory \
-             (no index.md or notes/). Remove it manually or choose a different --out.",
+             (no index.md or fragments/). Remove it manually or choose a different --out.",
             output_root.display()
         );
     }

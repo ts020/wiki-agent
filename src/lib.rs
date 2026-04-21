@@ -1,4 +1,5 @@
 pub mod build;
+pub mod fragment;
 pub mod link;
 pub mod model;
 pub mod notes;

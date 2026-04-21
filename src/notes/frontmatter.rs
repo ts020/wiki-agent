@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Frontmatter {
     pub wiki: Option<bool>,
+    pub fragment: Option<bool>,
     pub title: Option<String>,
     pub summary: Option<String>,
     pub tags: Vec<String>,
@@ -90,6 +91,7 @@ pub fn parse(block: &str) -> Frontmatter {
 fn apply_scalar(fm: &mut Frontmatter, key: &str, value: &str) {
     match key {
         "wiki" => fm.wiki = parse_bool(value),
+        "fragment" => fm.fragment = parse_bool(value),
         "title" => fm.title = Some(unquote(value)),
         "summary" => fm.summary = Some(unquote(value)),
         "tags" => fm.tags = parse_inline_list(value),
@@ -195,5 +197,11 @@ body"#;
     fn parses_wiki_false() {
         let (fm, _) = split("---\nwiki: false\n---\n");
         assert_eq!(fm.unwrap().wiki, Some(false));
+    }
+
+    #[test]
+    fn parses_fragment_false() {
+        let (fm, _) = split("---\nfragment: false\n---\n");
+        assert_eq!(fm.unwrap().fragment, Some(false));
     }
 }

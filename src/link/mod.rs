@@ -67,7 +67,8 @@ pub fn resolve_all(nodes: &[Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
         }
 
         // 本文の wikilink
-        let (_rewritten, mut us, edges) = wikilink::resolve_in(&n.note.body, output, &resolver);
+        let (_rewritten, mut us, edges) =
+            wikilink::resolve_in(&n.note.body, output, output, &resolver);
         unresolved.append(&mut us);
         for edge in edges {
             graph.add_edge(output, &edge);

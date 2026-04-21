@@ -27,12 +27,42 @@ pub fn sanitize_path(p: &Path) -> PathBuf {
     out
 }
 
-/// ノートの出力パスを算出する。
-/// - `README.md` → `notes/README.md`
-/// - `docs/foo.md` → `notes/docs/foo.md`
-pub fn note_path(source_file: &Path) -> PathBuf {
-    let sanitized = sanitize_path(source_file);
-    PathBuf::from("notes").join(sanitized)
+/// ノートの入口ページ（ディレクトリ）を算出する。
+/// - `README.md` → `fragments/README/`
+/// - `docs/foo.md` → `fragments/docs/foo/`
+pub fn entry_dir(source_file: &Path) -> PathBuf {
+    let parent = source_file.parent().unwrap_or(Path::new(""));
+    let stem = source_file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "note".to_string());
+    let sanitized_parent = sanitize_path(parent);
+    let mut dir = PathBuf::from("fragments");
+    dir.push(sanitized_parent);
+    dir.push(sanitize_component(&stem));
+    dir
+}
+
+/// 入口ページの出力パス `fragments/<rel>/index.md`。
+pub fn entry_index_path(source_file: &Path) -> PathBuf {
+    entry_dir(source_file).join("index.md")
+}
+
+/// h2 通常断片ページの出力パス `<entry_dir>/<slug>.md`。
+pub fn fragment_leaf_path(entry_dir: &Path, slug: &str) -> PathBuf {
+    entry_dir.join(format!("{}.md", sanitize_component(slug)))
+}
+
+/// 殻ページ（h3 再分割時の h2 入口）の出力パス `<entry_dir>/<slug>/index.md`。
+pub fn shell_index_path(entry_dir: &Path, slug: &str) -> PathBuf {
+    entry_dir.join(sanitize_component(slug)).join("index.md")
+}
+
+/// h3 子断片ページの出力パス `<entry_dir>/<h2-slug>/<h3-slug>.md`。
+pub fn h3_leaf_path(entry_dir: &Path, h2_slug: &str, h3_slug: &str) -> PathBuf {
+    entry_dir
+        .join(sanitize_component(h2_slug))
+        .join(format!("{}.md", sanitize_component(h3_slug)))
 }
 
 /// 出力ルート相対の 2 パス間の相対リンク文字列を返す。
@@ -115,37 +145,56 @@ mod tests {
     }
 
     #[test]
-    fn note_path_for_root_file() {
+    fn entry_paths_for_root_file() {
         assert_eq!(
-            note_path(Path::new("README.md")),
-            PathBuf::from("notes/README.md")
+            entry_dir(Path::new("README.md")),
+            PathBuf::from("fragments/README")
+        );
+        assert_eq!(
+            entry_index_path(Path::new("README.md")),
+            PathBuf::from("fragments/README/index.md")
         );
     }
 
     #[test]
-    fn note_path_preserves_nested_structure() {
+    fn entry_paths_preserve_nested_structure() {
         assert_eq!(
-            note_path(Path::new("docs/a/b.md")),
-            PathBuf::from("notes/docs/a/b.md")
+            entry_index_path(Path::new("docs/a/b.md")),
+            PathBuf::from("fragments/docs/a/b/index.md")
         );
     }
 
     #[test]
-    fn note_path_sanitizes_forbidden_chars() {
+    fn entry_paths_sanitize_forbidden_chars() {
         assert_eq!(
-            note_path(Path::new("docs/a:b.md")),
-            PathBuf::from("notes/docs/a_b.md")
+            entry_index_path(Path::new("docs/a:b.md")),
+            PathBuf::from("fragments/docs/a_b/index.md")
+        );
+    }
+
+    #[test]
+    fn fragment_leaf_and_shell_paths() {
+        let dir = PathBuf::from("fragments/a");
+        assert_eq!(
+            fragment_leaf_path(&dir, "intro"),
+            PathBuf::from("fragments/a/intro.md")
+        );
+        assert_eq!(
+            shell_index_path(&dir, "design"),
+            PathBuf::from("fragments/a/design/index.md")
+        );
+        assert_eq!(
+            h3_leaf_path(&dir, "design", "flow"),
+            PathBuf::from("fragments/a/design/flow.md")
         );
     }
 
     #[test]
     fn resolve_conflict_appends_suffix() {
         let mut used = HashSet::new();
-        let first = resolve_conflict(PathBuf::from("notes/a.md"), &mut used);
-        let second = resolve_conflict(PathBuf::from("notes/a.md"), &mut used);
-        let third = resolve_conflict(PathBuf::from("notes/a.md"), &mut used);
-        assert_eq!(first, PathBuf::from("notes/a.md"));
-        assert_eq!(second, PathBuf::from("notes/a-1.md"));
-        assert_eq!(third, PathBuf::from("notes/a-2.md"));
+        let first = resolve_conflict(PathBuf::from("fragments/a/index.md"), &mut used);
+        let second = resolve_conflict(PathBuf::from("fragments/a/index.md"), &mut used);
+        assert_eq!(first, PathBuf::from("fragments/a/index.md"));
+        assert_eq!(second, PathBuf::from("fragments/a/index-1.md"));
     }
 }
