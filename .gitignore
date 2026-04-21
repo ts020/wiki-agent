@@ -5,4 +5,12 @@
 /target
 
 # Output
+/md-wiki
 /repo-wiki
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
