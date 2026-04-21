@@ -560,6 +560,116 @@ fn root_index_is_reduced_to_sitemap() {
     );
 }
 
+/// AC-23: 40,000 文字を超えるページで warn ログにパスと文字数が出る
+#[test]
+fn oversized_page_emits_warn_log() {
+    use std::sync::{Arc, Mutex};
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Metadata, Subscriber, subscriber::with_default};
+
+    #[derive(Default)]
+    struct Capture {
+        events: Mutex<Vec<(tracing::Level, String)>>,
+    }
+
+    struct LineVisitor(String);
+    impl Visit for LineVisitor {
+        fn record_debug(&mut self, f: &Field, v: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            let _ = write!(self.0, "{}={:?} ", f.name(), v);
+        }
+        fn record_str(&mut self, f: &Field, v: &str) {
+            use std::fmt::Write;
+            let _ = write!(self.0, "{}={} ", f.name(), v);
+        }
+        fn record_u64(&mut self, f: &Field, v: u64) {
+            use std::fmt::Write;
+            let _ = write!(self.0, "{}={} ", f.name(), v);
+        }
+        fn record_i64(&mut self, f: &Field, v: i64) {
+            use std::fmt::Write;
+            let _ = write!(self.0, "{}={} ", f.name(), v);
+        }
+    }
+
+    impl Subscriber for Capture {
+        fn enabled(&self, _: &Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &Event<'_>) {
+            let mut v = LineVisitor(String::new());
+            event.record(&mut v);
+            self.events
+                .lock()
+                .unwrap()
+                .push((*event.metadata().level(), v.0));
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    let body_line = "あいうえおかきくけこ".repeat(100);
+    let mut body = String::from("# Huge\n\n");
+    for _ in 0..45 {
+        body.push_str(&body_line);
+        body.push('\n');
+    }
+    fs::write(target.join("huge.md"), &body).unwrap();
+
+    struct Wrap(Arc<Capture>);
+    impl Subscriber for Wrap {
+        fn enabled(&self, m: &Metadata<'_>) -> bool {
+            self.0.enabled(m)
+        }
+        fn new_span(&self, a: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            self.0.new_span(a)
+        }
+        fn record(&self, id: &tracing::span::Id, r: &tracing::span::Record<'_>) {
+            self.0.record(id, r)
+        }
+        fn record_follows_from(&self, a: &tracing::span::Id, b: &tracing::span::Id) {
+            self.0.record_follows_from(a, b)
+        }
+        fn event(&self, e: &Event<'_>) {
+            self.0.event(e)
+        }
+        fn enter(&self, id: &tracing::span::Id) {
+            self.0.enter(id)
+        }
+        fn exit(&self, id: &tracing::span::Id) {
+            self.0.exit(id)
+        }
+    }
+
+    let capture = Arc::new(Capture::default());
+    let output = tmp.path().join("out");
+    with_default(Wrap(Arc::clone(&capture)), || {
+        generate_dir(&target, &output, "project", true);
+    });
+
+    assert!(output.join("fragments/huge/index.md").exists());
+
+    let events = capture.events.lock().unwrap();
+    let hit = events.iter().any(|(lvl, msg)| {
+        *lvl == tracing::Level::WARN
+            && msg.contains("fragments/huge/index.md")
+            && msg.contains("chars=")
+    });
+    assert!(
+        hit,
+        "warn ログにパスと文字数が含まれるべき: {:?}",
+        events.iter().collect::<Vec<_>>()
+    );
+}
+
 /// AC-20: h2 が無いノートは入口のみで、断片ページは生成されない
 #[test]
 fn no_h2_note_has_entry_only() {

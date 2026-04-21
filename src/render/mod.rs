@@ -15,6 +15,9 @@ use anyhow::{Context, Result};
 use crate::link::{LinkGraph, Resolver, UnresolvedLink};
 use crate::model::{Node, iter_pages};
 
+/// 128k コンテキスト前提でのページサイズ上限（§9, AC-23）。超過時は warn ログ。
+const PAGE_CHAR_LIMIT: usize = 40_000;
+
 /// 生成物一式を出力ルートへ書き出す。毎回フル再生成（FR-03）。
 pub struct WikiOutput<'a> {
     pub project_title: &'a str,
@@ -119,8 +122,17 @@ fn clean_output(output_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 1 ページ分の書き出しを集約するヘルパー。
+/// 1 ページ分の書き出し。40,000 文字超は warn ログを出して処理は継続する（AC-23）。
 fn write_page(root: &Path, rel: &Path, body: &str) -> Result<()> {
+    let chars = body.chars().count();
+    if chars > PAGE_CHAR_LIMIT {
+        tracing::warn!(
+            path = %rel.display(),
+            chars,
+            limit = PAGE_CHAR_LIMIT,
+            "page exceeds 128k-context soft limit"
+        );
+    }
     let abs = root.join(rel);
     if let Some(parent) = abs.parent() {
         fs::create_dir_all(parent)
