@@ -77,6 +77,7 @@ enum FixtureKind {
     H2H3,
     NoHeading,
     SingleHeading,
+    SingleLine,
     CodeBlock,
     Table,
     Mixed,
@@ -698,6 +699,7 @@ fn validate_forced_splits(sources: &[SourceGeneration]) -> bool {
             FixtureKind::Mixed => SplitReason::Table,
             FixtureKind::NoHeading => SplitReason::Paragraph,
             FixtureKind::SingleHeading | FixtureKind::ManyLinks => SplitReason::LineWindow,
+            FixtureKind::SingleLine => SplitReason::ByteWindow,
             FixtureKind::CodeBlock => SplitReason::CodeFence,
             FixtureKind::Table => SplitReason::Table,
         };
@@ -929,6 +931,9 @@ fn fixture_specs(mode: GateMode, override_bytes: Option<usize>) -> Vec<FixtureSp
     let normal_bytes = override_bytes.unwrap_or(NORMAL_FIXTURE_BYTES);
     let heavy_bytes = override_bytes.unwrap_or(HEAVY_FIXTURE_BYTES);
     let huge_bytes = override_bytes.unwrap_or(HUGE_FIXTURE_BYTES);
+    let single_line_bytes = override_bytes
+        .map(|bytes| bytes.max(64 * 1024))
+        .unwrap_or(3 * 1024 * 1024);
     match mode {
         GateMode::Normal => vec![
             FixtureSpec {
@@ -945,6 +950,11 @@ fn fixture_specs(mode: GateMode, override_bytes: Option<usize>) -> Vec<FixtureSp
                 name: "large-single-heading.md",
                 kind: FixtureKind::SingleHeading,
                 min_bytes: normal_bytes,
+            },
+            FixtureSpec {
+                name: "large-single-line.md",
+                kind: FixtureKind::SingleLine,
+                min_bytes: single_line_bytes,
             },
             FixtureSpec {
                 name: "large-code-block.md",
@@ -977,6 +987,11 @@ fn fixture_specs(mode: GateMode, override_bytes: Option<usize>) -> Vec<FixtureSp
                 name: "many-links.md",
                 kind: FixtureKind::ManyLinks,
                 min_bytes: heavy_bytes,
+            },
+            FixtureSpec {
+                name: "large-single-line.md",
+                kind: FixtureKind::SingleLine,
+                min_bytes: single_line_bytes.max(heavy_bytes),
             },
         ],
     }
@@ -1019,6 +1034,12 @@ fn write_fixture(path: &Path, spec: FixtureSpec) -> Result<()> {
                     &mut bytes,
                     &format!("single-section marker-{i} with deterministic body text.\n"),
                 )?;
+                i += 1;
+            }
+        }
+        FixtureKind::SingleLine => {
+            while bytes < spec.min_bytes {
+                write_counted(&mut writer, &mut bytes, &format!("single-line-marker-{i}-"))?;
                 i += 1;
             }
         }
@@ -1118,8 +1139,8 @@ mod tests {
 
         assert_eq!(report.schema_version, 1);
         assert_eq!(report.mode, GateMode::Normal);
-        assert_eq!(report.summary.fixtures, 5);
-        assert!(report.summary.input_bytes >= 5 * 16 * 1024);
+        assert_eq!(report.summary.fixtures, 6);
+        assert!(report.summary.input_bytes >= 6 * 16 * 1024);
         assert!(report.summary.max_buffered_bytes <= 8 * 1024 * 1024);
         assert!(report.checks.iter().any(|c| c.id == "large-md-ingestion"));
         assert!(report.checks.iter().any(|c| c.id == "large-md-streaming"));
@@ -1134,7 +1155,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["schema_version"], 1);
         assert_eq!(parsed["mode"], "normal");
-        assert_eq!(parsed["summary"]["fixtures"], 5);
+        assert_eq!(parsed["summary"]["fixtures"], 6);
     }
 
     #[test]

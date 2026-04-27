@@ -80,6 +80,7 @@
 - 巨大なコードブロックは、可能な限りフェンスを壊さずに分割する
 - フェンスを壊さざるを得ない場合は、各 leaf が Markdown として読めるように継続フェンスを明示する
 - 巨大な表は行単位で分割し、各 leaf に必要な header row を再掲する
+- 改行を含まない単一巨大段落／単一巨大行は byte window で `part-001.md`, `part-002.md`, ... に分割し、全 leaf を hard limit 内に収める
 
 ## 18.6 出力構造の完了条件
 
@@ -201,6 +202,7 @@ md_wiki:
 | `large-h2-h3.md` | 2〜5 MiB | h2/h3 が豊富な構造化文書 | h3 leaf へ分割、全ページ hard limit 内 |
 | `large-no-heading.md` | 2〜5 MiB | 見出し無しの段落集合 | `part-001.md` 形式で分割 |
 | `large-single-heading.md` | 2〜5 MiB | h1 + 巨大本文のみ | 段落 / 行 window で分割 |
+| `large-single-line.md` | 3 MiB 以上 | 改行を含まない単一巨大段落 | byte window で分割、全ページ hard limit 内 |
 | `large-code-block.md` | 2〜5 MiB | 巨大 fenced code block | Markdown として読める leaf へ分割 |
 | `large-table.md` | 2〜5 MiB | 巨大 Markdown table | header row を維持して分割 |
 | `huge-20mb.md` | 20 MiB | 混合構造 | 全ページ hard limit 内、30 秒以内 |
@@ -221,6 +223,7 @@ md_wiki:
 - `large-h2-h3.md`
 - `large-no-heading.md`
 - `large-single-heading.md`
+- `large-single-line.md`
 - `large-code-block.md`
 - `large-table.md`
 
@@ -229,6 +232,7 @@ md_wiki:
 - すべて取り込まれる
 - hard limit 超過ページ 0
 - root / `_index.md` / headings / links / tags / unresolved の hard limit 超過 0
+- `large-single-line.md` 由来の leaf は `split_reason: byte_window` を持ち、全 leaf が hard limit 内に収まる
 - leaf page に Parent がある
 - 連続 leaf に Prev / Next がある
 - source byte range / line range metadata がある

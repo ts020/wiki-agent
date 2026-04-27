@@ -26,6 +26,7 @@
 
 ## 改訂履歴
 
+- vNext-large-md-byte-window (2026-04-28): 改行を含まない 3 MiB 級単一段落を byte window で検証・分割する条件を追加
 - vNext-large-md-design (2026-04-28): 巨大 Markdown 対応の実装設計、JSON gate report、通常 gate / heavy gate の機械検証方法を追加
 - vNext-large-md (2026-04-28): 2 MiB 超〜200 MiB 級 Markdown を agentic search 向けページ群へ変換するための完了条件を追加
 - v1.2.1 (2026-04-28): AC-01〜23 の継続検証マトリクス、品質スコア判定基準、コミット単位のスコア履歴運用を追加

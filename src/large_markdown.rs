@@ -1,10 +1,14 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
 use crate::link::slugify;
+
+const BYTE_WINDOW_CHAR_TARGET: usize = 30_000;
+const READ_CHUNK_BYTES: usize = 64 * 1024;
+const LINE_PREFIX_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineRecord {
@@ -13,6 +17,7 @@ pub struct LineRecord {
     pub line_number: u64,
     pub char_count: u32,
     pub kind_hint: LineKindHint,
+    pub safe_split_offsets: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +35,19 @@ pub struct LineScanReport {
     pub lines: Vec<LineRecord>,
     pub bytes: u64,
     pub max_buffered_bytes: usize,
+}
+
+#[derive(Debug, Clone)]
+struct LineStreamReport {
+    lines: Vec<ScannedLine>,
+    bytes: u64,
+    max_buffered_bytes: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ScannedLine {
+    record: LineRecord,
+    prefix: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,55 +117,210 @@ pub struct PagePlan {
     pub estimated_chars: usize,
 }
 
-pub fn scan_lines(_path: &Path) -> Result<LineScanReport> {
-    let file = File::open(_path).with_context(|| format!("failed to open {}", _path.display()))?;
-    let mut reader = BufReader::new(file);
-    let mut buf = Vec::new();
+pub fn scan_lines(path: &Path) -> Result<LineScanReport> {
+    let report = scan_physical_lines(path)?;
+
+    Ok(LineScanReport {
+        lines: report.lines.into_iter().map(|line| line.record).collect(),
+        bytes: report.bytes,
+        max_buffered_bytes: report.max_buffered_bytes,
+    })
+}
+
+fn scan_physical_lines(path: &Path) -> Result<LineStreamReport> {
+    let mut file =
+        File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let mut read_buf = vec![0u8; READ_CHUNK_BYTES];
     let mut lines = Vec::new();
-    let mut byte_start = 0u64;
+    let mut byte_offset = 0u64;
     let mut line_number = 1u64;
     let mut max_buffered_bytes = 0usize;
+    let mut line = StreamingLine::new(0, line_number);
 
     loop {
-        buf.clear();
-        let read = reader
-            .read_until(b'\n', &mut buf)
-            .with_context(|| format!("failed to read {}", _path.display()))?;
+        let read = file
+            .read(&mut read_buf)
+            .with_context(|| format!("failed to read {}", path.display()))?;
         if read == 0 {
             break;
         }
-        max_buffered_bytes = max_buffered_bytes.max(buf.len());
-        if buf.contains(&0) {
-            bail!(
-                "NULL byte found while scanning {} at line {}",
-                _path.display(),
-                line_number
-            );
+        let chunk = &read_buf[..read];
+        max_buffered_bytes = max_buffered_bytes.max(read + line.buffered_bytes());
+
+        let mut segment_start = 0usize;
+        for (idx, byte) in chunk.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let segment = &chunk[segment_start..=idx];
+            let segment_byte_start = byte_offset + segment_start as u64;
+            line.consume(segment, segment_byte_start, path)?;
+            lines.push(line.finish(path)?);
+
+            line_number += 1;
+            let next_byte_start = byte_offset + idx as u64 + 1;
+            line = StreamingLine::new(next_byte_start, line_number);
+            segment_start = idx + 1;
         }
-        let text = std::str::from_utf8(&buf).with_context(|| {
-            format!(
-                "invalid UTF-8 while scanning {} at line {}",
-                _path.display(),
-                line_number
-            )
-        })?;
-        let byte_end = byte_start + read as u64;
-        lines.push(LineRecord {
-            byte_start,
-            byte_end,
-            line_number,
-            char_count: text.chars().count() as u32,
-            kind_hint: classify_line(text),
-        });
-        byte_start = byte_end;
-        line_number += 1;
+
+        if segment_start < read {
+            let segment = &chunk[segment_start..];
+            let segment_byte_start = byte_offset + segment_start as u64;
+            line.consume(segment, segment_byte_start, path)?;
+        }
+        max_buffered_bytes = max_buffered_bytes.max(read + line.buffered_bytes());
+        byte_offset += read as u64;
     }
 
-    Ok(LineScanReport {
+    if line.has_content() {
+        lines.push(line.finish(path)?);
+    }
+
+    Ok(LineStreamReport {
         lines,
-        bytes: byte_start,
+        bytes: byte_offset,
         max_buffered_bytes,
     })
+}
+
+#[derive(Debug, Clone)]
+struct StreamingLine {
+    byte_start: u64,
+    byte_end: u64,
+    line_number: u64,
+    char_count: usize,
+    kind_prefix: String,
+    safe_split_offsets: Vec<u64>,
+    pending_utf8: Vec<u8>,
+    pending_byte_start: u64,
+    saw_content: bool,
+    next_split: usize,
+}
+
+impl StreamingLine {
+    fn new(byte_start: u64, line_number: u64) -> Self {
+        Self {
+            byte_start,
+            byte_end: byte_start,
+            line_number,
+            char_count: 0,
+            kind_prefix: String::new(),
+            safe_split_offsets: Vec::new(),
+            pending_utf8: Vec::new(),
+            pending_byte_start: byte_start,
+            saw_content: false,
+            next_split: BYTE_WINDOW_CHAR_TARGET,
+        }
+    }
+
+    fn buffered_bytes(&self) -> usize {
+        self.pending_utf8.len() + self.kind_prefix.len()
+    }
+
+    fn has_content(&self) -> bool {
+        self.saw_content || !self.pending_utf8.is_empty()
+    }
+
+    fn consume(&mut self, bytes: &[u8], absolute_start: u64, path: &Path) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        if bytes.contains(&0) {
+            bail!(
+                "NULL byte found while scanning {} at line {}",
+                path.display(),
+                self.line_number
+            );
+        }
+        self.saw_content = true;
+        self.byte_end = absolute_start + bytes.len() as u64;
+
+        if self.pending_utf8.is_empty() {
+            return self.consume_utf8(bytes, absolute_start, path);
+        }
+
+        let combined_byte_start = self.pending_byte_start;
+        let mut combined = Vec::with_capacity(self.pending_utf8.len() + bytes.len());
+        combined.extend_from_slice(&self.pending_utf8);
+        combined.extend_from_slice(bytes);
+        self.pending_utf8.clear();
+        self.consume_utf8(&combined, combined_byte_start, path)
+    }
+
+    fn consume_utf8(&mut self, bytes: &[u8], absolute_start: u64, path: &Path) -> Result<()> {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => {
+                self.consume_text(text, absolute_start);
+                Ok(())
+            }
+            Err(err) if err.error_len().is_some() => {
+                bail!(
+                    "invalid UTF-8 while scanning {} at line {}",
+                    path.display(),
+                    self.line_number
+                )
+            }
+            Err(err) => {
+                let valid_up_to = err.valid_up_to();
+                let (valid, pending) = bytes.split_at(valid_up_to);
+                let text = std::str::from_utf8(valid).with_context(|| {
+                    format!(
+                        "invalid UTF-8 while scanning {} at line {}",
+                        path.display(),
+                        self.line_number
+                    )
+                })?;
+                self.consume_text(text, absolute_start);
+                self.pending_utf8.extend_from_slice(pending);
+                self.pending_byte_start = absolute_start + valid_up_to as u64;
+                Ok(())
+            }
+        }
+    }
+
+    fn consume_text(&mut self, text: &str, absolute_start: u64) {
+        for (byte_idx, ch) in text.char_indices() {
+            if self.char_count == self.next_split {
+                self.safe_split_offsets
+                    .push(absolute_start + byte_idx as u64);
+                self.next_split += BYTE_WINDOW_CHAR_TARGET;
+            }
+            self.char_count += 1;
+            if self.kind_prefix.len() + ch.len_utf8() <= LINE_PREFIX_BYTES {
+                self.kind_prefix.push(ch);
+            }
+        }
+    }
+
+    fn finish(self, path: &Path) -> Result<ScannedLine> {
+        if !self.pending_utf8.is_empty() {
+            bail!(
+                "invalid UTF-8 while scanning {} at line {}",
+                path.display(),
+                self.line_number
+            );
+        }
+        let char_count = u32::try_from(self.char_count).with_context(|| {
+            format!(
+                "line {} in {} exceeds supported character count",
+                self.line_number,
+                path.display()
+            )
+        })?;
+
+        let kind_hint = classify_line(&self.kind_prefix);
+        Ok(ScannedLine {
+            record: LineRecord {
+                byte_start: self.byte_start,
+                byte_end: self.byte_end,
+                line_number: self.line_number,
+                char_count,
+                kind_hint,
+                safe_split_offsets: self.safe_split_offsets,
+            },
+            prefix: self.kind_prefix,
+        })
+    }
 }
 
 pub fn plan_leaf_pages(
@@ -184,8 +357,8 @@ pub fn plan_leaf_pages(
     }];
 
     let chunk_limit = hard_limit.saturating_sub(10_000).max(1_000);
-    let split_reason = choose_split_reason(line_report, section_tree);
-    let chunks = chunk_lines(&line_report.lines, chunk_limit);
+    let split_reason = choose_split_reason(line_report, section_tree, chunk_limit);
+    let chunks = chunk_lines(&line_report.lines, chunk_limit, split_reason);
     let chunk_count = chunks.len();
     for (idx, chunk) in chunks.into_iter().enumerate() {
         let page_name = format!("part-{number:03}.md", number = idx + 1);
@@ -206,7 +379,7 @@ pub fn plan_leaf_pages(
                 start: chunk.line_start,
                 end: chunk.line_end,
             }],
-            split_reason,
+            split_reason: chunk.split_reason,
             parent: Some(PathBuf::from("index.md")),
             prev,
             next,
@@ -224,14 +397,26 @@ struct Chunk {
     line_start: u64,
     line_end: u64,
     chars: usize,
+    split_reason: SplitReason,
 }
 
-fn chunk_lines(lines: &[LineRecord], chunk_limit: usize) -> Vec<Chunk> {
+fn chunk_lines(
+    lines: &[LineRecord],
+    chunk_limit: usize,
+    default_split_reason: SplitReason,
+) -> Vec<Chunk> {
     let mut chunks = Vec::new();
     let mut current: Option<Chunk> = None;
 
     for line in lines {
         let line_chars = line.char_count as usize;
+        if line_chars > chunk_limit {
+            if let Some(chunk) = current.take() {
+                chunks.push(chunk);
+            }
+            chunks.extend(byte_window_chunks(line, chunk_limit));
+            continue;
+        }
         if let Some(chunk) = &mut current
             && chunk.chars > 0
             && chunk.chars + line_chars > chunk_limit
@@ -245,6 +430,7 @@ fn chunk_lines(lines: &[LineRecord], chunk_limit: usize) -> Vec<Chunk> {
             line_start: line.line_number,
             line_end: line.line_number,
             chars: 0,
+            split_reason: default_split_reason,
         });
         chunk.byte_end = line.byte_end;
         chunk.line_end = line.line_number;
@@ -257,7 +443,47 @@ fn chunk_lines(lines: &[LineRecord], chunk_limit: usize) -> Vec<Chunk> {
     chunks
 }
 
-fn choose_split_reason(line_report: &LineScanReport, section_tree: &SectionTree) -> SplitReason {
+fn byte_window_chunks(line: &LineRecord, chunk_limit: usize) -> Vec<Chunk> {
+    let mut boundaries = Vec::with_capacity(line.safe_split_offsets.len() + 2);
+    boundaries.push(line.byte_start);
+    boundaries.extend(
+        line.safe_split_offsets
+            .iter()
+            .copied()
+            .filter(|offset| *offset > line.byte_start && *offset < line.byte_end),
+    );
+    boundaries.push(line.byte_end);
+    boundaries.dedup();
+
+    boundaries
+        .windows(2)
+        .filter_map(|pair| {
+            let start = pair[0];
+            let end = pair[1];
+            (start < end).then_some(Chunk {
+                byte_start: start,
+                byte_end: end,
+                line_start: line.line_number,
+                line_end: line.line_number,
+                chars: chunk_limit.min(line.char_count as usize),
+                split_reason: SplitReason::ByteWindow,
+            })
+        })
+        .collect()
+}
+
+fn choose_split_reason(
+    line_report: &LineScanReport,
+    section_tree: &SectionTree,
+    chunk_limit: usize,
+) -> SplitReason {
+    if line_report
+        .lines
+        .iter()
+        .any(|line| line.char_count as usize > chunk_limit)
+    {
+        return SplitReason::ByteWindow;
+    }
     if line_report
         .lines
         .iter()
@@ -281,10 +507,8 @@ fn choose_split_reason(line_report: &LineScanReport, section_tree: &SectionTree)
     SplitReason::LineWindow
 }
 
-pub fn scan_section_tree(_path: &Path) -> Result<SectionTree> {
-    let file = File::open(_path).with_context(|| format!("failed to open {}", _path.display()))?;
-    let mut reader = BufReader::new(file);
-    let mut buf = Vec::new();
+pub fn scan_section_tree(path: &Path) -> Result<SectionTree> {
+    let report = scan_physical_lines(path)?;
     let mut sections = vec![SectionNode {
         id: "root".into(),
         parent_id: None,
@@ -299,38 +523,16 @@ pub fn scan_section_tree(_path: &Path) -> Result<SectionTree> {
     }];
     let mut stack = vec![0usize];
     let mut heading_counts = [0usize; 7];
-    let mut byte_start = 0u64;
-    let mut line_number = 1u64;
     let mut last_line = 0u64;
     let mut in_fence = false;
 
-    loop {
-        buf.clear();
-        let read = reader
-            .read_until(b'\n', &mut buf)
-            .with_context(|| format!("failed to read {}", _path.display()))?;
-        if read == 0 {
-            break;
-        }
-        if buf.contains(&0) {
-            bail!(
-                "NULL byte found while scanning {} at line {}",
-                _path.display(),
-                line_number
-            );
-        }
-        let text = std::str::from_utf8(&buf).with_context(|| {
-            format!(
-                "invalid UTF-8 while scanning {} at line {}",
-                _path.display(),
-                line_number
-            )
-        })?;
-        let line_start = byte_start;
-        let line_end = byte_start + read as u64;
-        let kind = classify_line(text);
+    for scanned in &report.lines {
+        let record = &scanned.record;
+        let line_start = record.byte_start;
+        let line_number = record.line_number;
+        let kind = record.kind_hint;
 
-        if !in_fence && let Some((level, title)) = parse_heading(text) {
+        if !in_fence && let Some((level, title)) = parse_heading(&scanned.prefix) {
             while sections[*stack.last().unwrap()].level >= level {
                 let closed = stack.pop().unwrap();
                 close_section(
@@ -366,14 +568,12 @@ pub fn scan_section_tree(_path: &Path) -> Result<SectionTree> {
         if kind == LineKindHint::Fence {
             in_fence = !in_fence;
         }
-        byte_start = line_end;
         last_line = line_number;
-        line_number += 1;
     }
 
     for section in &mut sections {
         if section.byte_end == 0 {
-            close_section(section, byte_start, last_line);
+            close_section(section, report.bytes, last_line);
         }
     }
     let heading_count = sections.len().saturating_sub(1);
@@ -465,6 +665,7 @@ mod tests {
         assert_eq!(report.lines[0].line_number, 1);
         assert_eq!(report.lines[0].char_count, 8);
         assert_eq!(report.lines[0].kind_hint, LineKindHint::Heading);
+        assert!(report.lines[0].safe_split_offsets.is_empty());
         assert_eq!(report.lines[1].kind_hint, LineKindHint::Blank);
         assert_eq!(report.lines[2].kind_hint, LineKindHint::Fence);
         assert_eq!(report.lines[3].kind_hint, LineKindHint::Table);
@@ -484,7 +685,7 @@ mod tests {
 
         assert!(report.bytes > 1024 * 1024);
         assert_eq!(report.lines.len(), 120_000);
-        assert!(report.max_buffered_bytes < 1024);
+        assert!(report.max_buffered_bytes < 128 * 1024);
     }
 
     #[test]
@@ -545,6 +746,34 @@ mod tests {
         assert_eq!(leaves[0].parent.as_deref(), Some(Path::new("index.md")));
         assert!(leaves[0].next.is_some());
         assert!(leaves.last().unwrap().prev.is_some());
+    }
+
+    #[test]
+    fn plan_leaf_pages_splits_single_huge_line_with_byte_windows() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "{}", "a".repeat(95_000)).unwrap();
+        file.flush().unwrap();
+
+        let lines = scan_lines(file.path()).unwrap();
+        let tree = scan_section_tree(file.path()).unwrap();
+        let plans = plan_leaf_pages(Path::new("large-single-line.md"), &lines, &tree, 40_000);
+
+        assert!(lines.max_buffered_bytes < 128 * 1024);
+        let leaves: Vec<_> = plans
+            .iter()
+            .filter(|plan| plan.page_kind == PageKind::Leaf)
+            .collect();
+        assert!(leaves.len() >= 4);
+        assert!(leaves.iter().all(|plan| {
+            plan.estimated_chars <= 30_000 && plan.split_reason == SplitReason::ByteWindow
+        }));
+        assert_eq!(leaves.first().unwrap().byte_ranges[0].start, 0);
+        assert_eq!(leaves.last().unwrap().byte_ranges[0].end, lines.bytes);
+        for pair in leaves.windows(2) {
+            assert_eq!(pair[0].byte_ranges[0].end, pair[1].byte_ranges[0].start);
+            assert_eq!(pair[0].line_ranges[0].start, 1);
+            assert_eq!(pair[1].line_ranges[0].start, 1);
+        }
     }
 
     #[test]
