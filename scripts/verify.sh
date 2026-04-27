@@ -30,6 +30,7 @@ Runs the full continuous verification gate:
   2. cargo clippy -- -D warnings
   3. cargo test
   4. cargo run --example quality_score -- --min-score N
+  5. cargo run --example large_md_gate -- --mode normal --min-score 100
 
 With --record-score, writes per-commit score reports under DIR.
 USAGE
@@ -52,3 +53,8 @@ if [[ "$record_score" -eq 1 ]]; then
 fi
 
 cargo run --quiet --example quality_score -- "${score_args[@]}"
+cargo run --quiet --example large_md_gate -- \
+  --mode normal \
+  --work-dir target/large-md-gate \
+  --report target/large-md-gate/report.json \
+  --min-score 100
