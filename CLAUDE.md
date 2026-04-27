@@ -1,57 +1,8 @@
 # md-wiki
 
-## プロジェクト概要
+Read first:
 
-ローカルの Markdown ファイルを入力に取り、タグ・見出し・リンクで横断できる個人用 wiki ツリーを生成する CLI。AI / LLM は使わず、静的解析のみで組み立てる。
+- `.agents/core.md`
+- `docs/要件定義/index.md`
 
-詳細な要件は [`docs/要件定義/index.md`](docs/要件定義/index.md) を参照（セクション別に分割管理）。
-
-## 技術スタック
-
-- 言語: Rust
-- 外部 API: 使用しない（完全オフライン動作、AI 非依存）
-
-## ビルド・実行
-
-```sh
-cargo build
-cargo run -- <INPUT> [-r|--recursive] [-o|--out <DIR>]
-
-# 例
-cargo run -- path/to/note.md
-cargo run -- path/to/notes --recursive
-```
-
-## テスト
-
-```sh
-cargo test
-```
-
-## lint / format
-
-```sh
-cargo clippy -- -D warnings
-cargo fmt --check
-```
-
-## アーキテクチャ方針
-
-- CLI エントリポイント → ファイル走査 → フロントマター/見出し/リンク解析 → 索引生成 → wiki 出力
-- 出力先デフォルト: `./md-wiki`
-- 毎回フル生成（差分更新は v1 スコープ外）
-- 非破壊: 入力側の `.md` を一切変更しない
-- 対象は `.md` のみ（コード解析機能は持たない）
-
-## コミットルール
-
-- コミットメッセージは「何を変えたか」ではなく「なぜ変えたか（変更の意図）」を記述すること
-- 変更内容の列挙ではなく、その変更が必要になった背景・目的を簡潔に伝える
-
-## 開発ルール
-
-- `docs/要件定義/` 配下を正とする。要件に矛盾や不明点がある場合は確認を取ること
-- `docs/要件定義/14-将来拡張.md` に属する項目は v1 では扱わない。必要になったら実装前に相談すること
-- エラー処理: 読めないファイルはスキップして継続
-- 除外対象: `.git`, `node_modules`, `dist`, `build`, `target`、および隠しディレクトリ（`.wiki` は例外として走査する）
-- 旧 `repo-wiki agent` 時代のコード走査・シンボル抽出関連のコードは段階的に削除していく
+Claude Code skills are exposed under `.claude/skills/`, but shared skill bodies should live under `.agents/skills/` and be symlinked from `.claude/skills/`.
