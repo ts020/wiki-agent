@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use crate::model::{Node, PageKind, iter_pages};
+use crate::render::text::link_label;
 
 /// 1 つの `_index.md` 出力単位。
 pub struct SiteIndexPage {
@@ -161,7 +162,7 @@ fn render_page(
                 .find(|n| n.entry_dir == *note_dir)
                 .map(|n| n.title.clone())
                 .unwrap_or_else(|| name.clone());
-            let _ = writeln!(&mut s, "- [{title}]({name}/index.md)");
+            let _ = writeln!(&mut s, "- [{}]({name}/index.md)", link_label(&title));
         }
         s.push('\n');
     }

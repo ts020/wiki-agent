@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::link::LinkGraph;
+use crate::link::Resolver;
 use crate::model::{Node, iter_pages};
 use crate::render::tags::TagIndex;
 
@@ -14,6 +15,7 @@ type ComputeResult = (Vec<PathBuf>, BTreeMap<PathBuf, Vec<PathBuf>>);
 /// 全ノートに対して related / backlinks を計算して書き戻す（FR-10, FR-11）。
 /// Backlinks は断片解像度（各ページ単位）、Related は入口ページ単位。
 pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &TagIndex) {
+    let resolver = Resolver::build(nodes);
     let tags_by_node: BTreeMap<PathBuf, BTreeSet<String>> = nodes
         .iter()
         .map(|n| {
@@ -43,7 +45,14 @@ pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &Tag
     // (related, backlinks-map)
     let mut results: Vec<ComputeResult> = Vec::with_capacity(nodes.len());
     for (entry, fm_related, tags, pages) in &snapshot {
-        let related = compute_related(entry, fm_related, tags, graph, &tags_by_node, &known_paths);
+        let related = compute_related(
+            entry,
+            fm_related,
+            tags,
+            &resolver,
+            &tags_by_node,
+            &known_paths,
+        );
         let mut backlinks: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         for page in pages {
             let refs: Vec<PathBuf> = graph.backward_of(page);
@@ -54,7 +63,7 @@ pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &Tag
         results.push((related, backlinks));
     }
 
-    for (n, (related, backlinks)) in nodes.iter_mut().zip(results.into_iter()) {
+    for (n, (related, backlinks)) in nodes.iter_mut().zip(results) {
         n.related = related;
         n.backlinks = backlinks;
     }
@@ -65,17 +74,15 @@ fn compute_related(
     self_path: &Path,
     fm_related: &[String],
     tags: &[String],
-    graph: &LinkGraph,
+    resolver: &Resolver,
     tags_by_node: &BTreeMap<PathBuf, BTreeSet<String>>,
     known_paths: &BTreeSet<PathBuf>,
 ) -> Vec<PathBuf> {
     let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
     let mut out: Vec<PathBuf> = Vec::new();
 
-    let forward = graph.forward_of(self_path);
-    let forward_set: BTreeSet<PathBuf> = forward.iter().cloned().collect();
     for entry in fm_related {
-        if let Some(path) = resolve_related_path(entry, &forward_set, known_paths)
+        if let Some(path) = resolve_related_path(entry, self_path, resolver, known_paths)
             && path != self_path
             && !seen.contains(&path)
         {
@@ -112,17 +119,17 @@ fn compute_related(
 /// related エントリ（wikilink ターゲット or 出力相対パス）を既知のパスに解決する。
 fn resolve_related_path(
     entry: &str,
-    forward_set: &BTreeSet<PathBuf>,
+    self_path: &Path,
+    resolver: &Resolver,
     known_paths: &BTreeSet<PathBuf>,
 ) -> Option<PathBuf> {
     let as_path = PathBuf::from(entry);
     if known_paths.contains(&as_path) {
         return Some(as_path);
     }
-    for p in forward_set {
-        if p.file_stem().and_then(|s| s.to_str()) == Some(entry) {
-            return Some(p.clone());
-        }
-    }
-    None
+    let stem = as_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(entry);
+    resolver.resolve(stem, self_path)
 }

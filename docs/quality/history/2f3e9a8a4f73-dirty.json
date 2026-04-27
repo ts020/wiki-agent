@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "commit": "2f3e9a8a4f73",
+  "dirty": true,
+  "score": 100.0,
+  "max_score": 100.0,
+  "passed_min_score": true,
+  "summary": {
+    "generated_pages": 27,
+    "generated_files": 27,
+    "broken_local_links": 0,
+    "unresolved_links": 0,
+    "oversized_pages": 0,
+    "max_page_chars": 2285
+  },
+  "checks": [
+    {
+      "id": "required-files",
+      "name": "Required output entry points",
+      "points": 15.0,
+      "max_points": 15.0,
+      "passed": true,
+      "detail": "all required entry points exist"
+    },
+    {
+      "id": "local-links",
+      "name": "Generated local links resolve",
+      "points": 20.0,
+      "max_points": 20.0,
+      "passed": true,
+      "detail": "broken local links: 0"
+    },
+    {
+      "id": "wikilink-rewrite",
+      "name": "Wikilinks are rewritten without residue",
+      "points": 15.0,
+      "max_points": 15.0,
+      "passed": true,
+      "detail": "raw wikilinks: 0, unresolved: 0, alias link ok: true"
+    },
+    {
+      "id": "fragment-navigation",
+      "name": "Fragment navigation is present and stable",
+      "points": 15.0,
+      "max_points": 15.0,
+      "passed": true,
+      "detail": "checked 7 navigable pages"
+    },
+    {
+      "id": "relations",
+      "name": "Backlinks and related notes are rendered",
+      "points": 15.0,
+      "max_points": 15.0,
+      "passed": true,
+      "detail": "backlink ok: true, related ok: true"
+    },
+    {
+      "id": "context-efficiency",
+      "name": "Generated pages stay within context budget",
+      "points": 10.0,
+      "max_points": 10.0,
+      "passed": true,
+      "detail": "oversized pages: 0, max chars: 2285"
+    },
+    {
+      "id": "determinism",
+      "name": "Repeated generation is byte-identical",
+      "points": 10.0,
+      "max_points": 10.0,
+      "passed": true,
+      "detail": "byte-identical rerun: true"
+    }
+  ]
+}

@@ -26,6 +26,35 @@ pub struct ScannedFile {
     pub size: u64,
 }
 
+pub fn scan_single_file(path: &Path) -> Option<ScannedFile> {
+    let rel = path
+        .file_name()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| path.to_path_buf());
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(err) => {
+            tracing::warn!(path = %rel.display(), error = %err, "failed to read metadata");
+            return None;
+        }
+    };
+    if metadata.len() > MAX_FILE_SIZE {
+        tracing::warn!(
+            path = %rel.display(),
+            size = metadata.len(),
+            "file exceeds 1 MiB, skipping"
+        );
+        return None;
+    }
+    if !is_probably_text(path, &rel) {
+        return None;
+    }
+    Some(ScannedFile {
+        relative_path: rel,
+        size: metadata.len(),
+    })
+}
+
 pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
     let root = &config.root;
     let mut files: Vec<ScannedFile> = Vec::new();

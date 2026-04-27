@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use super::paths::{fragment_leaf_path, relative_link, shell_index_path};
+use super::text::link_label;
 use crate::fragment::Fragment;
 use crate::link::slugify;
 use crate::model::Node;
@@ -24,11 +25,16 @@ pub fn render_headings_index(nodes: &[Node]) -> String {
         }
         any_heading = true;
         let note_link = relative_link(&from, &n.output_path);
-        let _ = writeln!(&mut s, "## [{}]({})", n.title, note_link);
+        let _ = writeln!(&mut s, "## [{}]({})", link_label(&n.title), note_link);
         s.push('\n');
         for entry in entries {
             let indent = if entry.level == 2 { "  " } else { "" };
-            let _ = writeln!(&mut s, "{indent}- [{}]({})", entry.text, entry.link);
+            let _ = writeln!(
+                &mut s,
+                "{indent}- [{}]({})",
+                link_label(&entry.text),
+                entry.link
+            );
         }
         s.push('\n');
     }

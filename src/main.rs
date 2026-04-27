@@ -8,7 +8,9 @@ use md_wiki::notes::ingest_notes;
 use md_wiki::relations::compute_relations;
 use md_wiki::render::tags::build_tag_index;
 use md_wiki::render::{WikiOutput, write_wiki};
-use md_wiki::scan::{ScanConfig, scan};
+use md_wiki::scan::{ScanConfig, scan, scan_single_file};
+
+const NOTE_COUNT_WARN: usize = 5_000;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -56,11 +58,7 @@ fn main() -> anyhow::Result<()> {
             .parent()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let name = cli.input.file_name().unwrap().to_os_string();
-        let files = vec![md_wiki::scan::ScannedFile {
-            relative_path: PathBuf::from(&name),
-            size: std::fs::metadata(&cli.input).map(|m| m.len()).unwrap_or(0),
-        }];
+        let files = scan_single_file(&cli.input).into_iter().collect();
         (parent, files)
     } else {
         let files = scan(&ScanConfig {
@@ -85,6 +83,12 @@ fn main() -> anyhow::Result<()> {
     };
 
     let notes_data = ingest_notes(&files, &root);
+    if notes_data.len() > NOTE_COUNT_WARN {
+        tracing::warn!(
+            notes = notes_data.len(),
+            "ingested notes exceed {NOTE_COUNT_WARN}, continuing"
+        );
+    }
 
     let mut nodes = build_nodes(notes_data);
     let (unresolved, graph) = resolve_all(&nodes);

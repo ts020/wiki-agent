@@ -273,6 +273,23 @@ fn backlinks_appear_when_referenced() {
     );
 }
 
+/// FR-11: frontmatter related は wikilink ターゲット指定でも入口ページに列挙される
+#[test]
+fn frontmatter_related_resolves_wikilink_targets() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("a.md"), "---\nrelated: [b]\n---\n# A").unwrap();
+    fs::write(target.join("b.md"), "# B").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let a = fs::read_to_string(output.join("fragments/a/index.md")).unwrap();
+    assert!(a.contains("## Related"));
+    assert!(a.contains("- [B](../b/index.md)"));
+}
+
 /// AC-13 冪等性: 2 回連続実行で出力が一致する
 #[test]
 fn idempotent_on_rerun() {
@@ -338,6 +355,10 @@ fn h2_fragments_have_correct_navigation() {
 
     let alpha = fs::read_to_string(output.join("fragments/n/alpha.md")).unwrap();
     // 先頭: Prev 無し・Next あり
+    assert!(
+        alpha.starts_with("> Parent: [N](index.md) · Next: [Bravo](bravo.md)\n---\n\n"),
+        "ナビ行の直後に水平線が続くこと: {alpha}"
+    );
     assert!(alpha.contains("Parent: "));
     assert!(!alpha.contains("Prev:"));
     assert!(alpha.contains("Next: [Bravo](bravo.md)"));

@@ -5,6 +5,7 @@ pub mod links;
 pub mod paths;
 pub mod site_index;
 pub mod tags;
+pub mod text;
 pub mod unresolved;
 
 use std::fs;
