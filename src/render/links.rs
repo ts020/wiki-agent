@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use super::paths::relative_link;
+use super::text::link_label;
 use crate::link::LinkGraph;
 use crate::model::{Node, iter_pages};
 
@@ -34,7 +35,7 @@ pub fn render_links_index(nodes: &[Node], graph: &LinkGraph) -> String {
         }
         any = true;
         let self_link = relative_link(&from, page_path);
-        let _ = writeln!(&mut s, "## [{title}]({self_link})");
+        let _ = writeln!(&mut s, "## [{}]({self_link})", link_label(title));
         s.push('\n');
         for target in forward {
             let target_title = titles
@@ -42,7 +43,7 @@ pub fn render_links_index(nodes: &[Node], graph: &LinkGraph) -> String {
                 .cloned()
                 .unwrap_or_else(|| target.display().to_string());
             let link = relative_link(&from, &target);
-            let _ = writeln!(&mut s, "- [{target_title}]({link})");
+            let _ = writeln!(&mut s, "- [{}]({link})", link_label(&target_title));
         }
         s.push('\n');
     }

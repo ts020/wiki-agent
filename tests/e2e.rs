@@ -35,13 +35,14 @@ fn cli_help_runs() {
 fn single_file_input_generates_wiki() {
     let tmp = TempDir::new().unwrap();
     let note = tmp.path().join("memo.md");
-    fs::write(&note, "# Memo\n\nsome body").unwrap();
+    fs::write(&note, "# Memo\n\nsome body\n\n## Detail\n\nmore").unwrap();
 
     let out = tmp.path().join("wiki");
     run(&[note.as_os_str(), "--out".as_ref(), out.as_os_str()]);
 
     assert!(out.join("index.md").exists());
     assert!(out.join("fragments/memo/index.md").exists());
+    assert!(out.join("fragments/memo/detail.md").exists());
 }
 
 #[test]

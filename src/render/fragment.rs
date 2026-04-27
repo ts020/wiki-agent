@@ -5,6 +5,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use super::paths::{fragment_leaf_path, h3_leaf_path, relative_link, shell_index_path};
+use super::text::link_label;
 use crate::fragment::{Fragment, FragmentTree};
 use crate::link::{Resolver, wikilink};
 use crate::model::Node;
@@ -119,7 +120,7 @@ fn build_shell_children_section(node: &Node, idx: usize, page_path: &Path) -> St
     for child in children {
         let target = h3_leaf_path(&node.entry_dir, h2_slug, &child.slug);
         let link = relative_link(page_path, &target);
-        let _ = writeln!(&mut s, "- [{}]({link})", child.heading);
+        let _ = writeln!(&mut s, "- [{}]({link})", link_label(&child.heading));
     }
     s
 }
@@ -148,7 +149,7 @@ fn assemble(head: Option<String>, main: String, autos: &[String]) -> String {
     if let Some(h) = head {
         s.push_str(&h);
         ensure_trailing_newline(&mut s);
-        s.push_str("\n---\n\n");
+        s.push_str("---\n\n");
     }
     s.push_str(&main);
     if !autos.is_empty() {
@@ -182,7 +183,7 @@ fn build_fragments_section(node: &Node, from: &Path) -> String {
             Fragment::Shell { slug, .. } => shell_index_path(&node.entry_dir, slug),
         };
         let link = relative_link(from, &target);
-        let _ = writeln!(&mut s, "- [{}]({link})", frag.heading());
+        let _ = writeln!(&mut s, "- [{}]({link})", link_label(frag.heading()));
     }
     s
 }
@@ -216,27 +217,27 @@ fn append_link_item(s: &mut String, from: &Path, to: &Path, titles: &BTreeMap<Pa
         .cloned()
         .unwrap_or_else(|| to.display().to_string());
     let link = relative_link(from, to);
-    let _ = writeln!(s, "- [{title}]({link})");
+    let _ = writeln!(s, "- [{}]({link})", link_label(&title));
 }
 
 fn build_h2_nav(node: &Node, idx: usize, page_path: &Path) -> String {
     let mut parts = vec![format!(
         "Parent: [{}]({})",
-        node.title,
+        link_label(&node.title),
         relative_link(page_path, &node.output_path)
     )];
     if idx > 0 {
         let prev = &node.fragments.fragments[idx - 1];
         parts.push(format!(
             "Prev: [{}]({})",
-            prev.heading(),
+            link_label(prev.heading()),
             relative_link(page_path, &fragment_target(node, prev))
         ));
     }
     if let Some(next) = node.fragments.fragments.get(idx + 1) {
         parts.push(format!(
             "Next: [{}]({})",
-            next.heading(),
+            link_label(next.heading()),
             relative_link(page_path, &fragment_target(node, next))
         ));
     }
@@ -246,7 +247,7 @@ fn build_h2_nav(node: &Node, idx: usize, page_path: &Path) -> String {
 fn build_shell_nav(node: &Node, page_path: &Path) -> String {
     format!(
         "> Parent: [{}]({})",
-        node.title,
+        link_label(&node.title),
         relative_link(page_path, &node.output_path)
     )
 }
@@ -264,14 +265,14 @@ fn build_h3_nav(node: &Node, h2_idx: usize, h3_idx: usize, page_path: &Path) -> 
     let shell_path = shell_index_path(&node.entry_dir, &h2_slug);
     let mut parts = vec![format!(
         "Parent: [{}]({})",
-        h2_heading,
+        link_label(&h2_heading),
         relative_link(page_path, &shell_path)
     )];
     if h3_idx > 0 {
         let prev = &children[h3_idx - 1];
         parts.push(format!(
             "Prev: [{}]({})",
-            prev.heading,
+            link_label(&prev.heading),
             relative_link(
                 page_path,
                 &h3_leaf_path(&node.entry_dir, &h2_slug, &prev.slug)
@@ -281,7 +282,7 @@ fn build_h3_nav(node: &Node, h2_idx: usize, h3_idx: usize, page_path: &Path) -> 
     if let Some(next) = children.get(h3_idx + 1) {
         parts.push(format!(
             "Next: [{}]({})",
-            next.heading,
+            link_label(&next.heading),
             relative_link(
                 page_path,
                 &h3_leaf_path(&node.entry_dir, &h2_slug, &next.slug)

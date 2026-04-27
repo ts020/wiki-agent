@@ -30,16 +30,21 @@ cargo run -- path/to/notes -r -o path/to/wiki
 
 ```
 md-wiki/
-├── index.md            # 入口。ノート数・索引への導線
-├── notes/              # ノート本体（原本 + wikilink 変換 + 末尾に自動リンク欄）
-├── tags/               # タグ索引（ネストタグは tags/<a>/<b>.md）
-├── headings/           # 全ノートの見出し索引（h1-h2）
-├── links/              # ノート間のリンク関係一覧
-└── _unresolved.md      # 未解決 wikilink 一覧
+├── index.md             # 入口。サマリ + 索引への導線
+├── fragments/           # ノート本体（入口ページ + h2/h3 断片ページ）
+│   ├── _index.md        # 階層サマリ
+│   └── <rel>/
+│       ├── index.md     # ノート入口ページ
+│       └── <h2>.md      # h2 断片ページ
+├── tags/                # タグ索引（ネストタグは tags/<a>/<b>.md）
+├── headings/            # 全ノートの見出し索引（h1-h2）
+├── links/               # ノート間のリンク関係一覧
+└── _unresolved.md       # 未解決 wikilink 一覧
 ```
 
-- `notes/` 配下は原本の相対パスを維持して配置。本文は `[[wikilink]]` 変換のみで無改変
-- 各ノートの末尾には `## Backlinks` と `## Related` が水平線で区切られて自動付与される
+- `fragments/` 配下は原本の相対パスを維持して配置。本文は `[[wikilink]]` 変換のみで無改変
+- h2 を持つノートは入口ページと断片ページに分割される。長い h2 は条件により h3 子断片へ再分割される
+- 各ページの末尾には必要に応じて `## Backlinks` が付く。`## Related` は入口ページのみに付く
 - `md-wiki/` を削除しても入力側の `.md` は一切変更されないため、何度でも再生成できる
 
 ## 取り込みルール
@@ -61,4 +66,10 @@ md-wiki/
 cargo test
 cargo clippy -- -D warnings
 cargo fmt --check
+
+# 継続検証
+scripts/verify.sh
+
+# コミット単位の品質スコア履歴も残す
+scripts/record-quality-score.sh
 ```

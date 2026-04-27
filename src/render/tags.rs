@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use super::paths::relative_link;
+use super::text::link_label;
 use crate::model::Node;
 
 /// 全ノードのタグを集計した索引。
@@ -89,7 +90,7 @@ pub fn render_tag_page(tag: &str, node_paths: &[PathBuf], nodes: &[Node]) -> Str
             .map(|n| n.title.clone())
             .unwrap_or_else(|| p.display().to_string());
         let link = relative_link(&from, p);
-        let _ = writeln!(&mut s, "- [{title}]({link})");
+        let _ = writeln!(&mut s, "- [{}]({link})", link_label(&title));
     }
     s
 }

@@ -20,20 +20,25 @@ fn wikilink_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"(!)?\[\[([^\[\]\n]+)\]\]").unwrap())
 }
 
-/// 本文からすべての wikilink を抽出する。三重バッククォート/チルダの
-/// フェンスドコードブロック内はスキップする。
+/// 本文からすべての wikilink を抽出する。
+/// フェンスドコードブロック、インラインコード、HTML コメント内は解釈しない。
 pub fn find_all(body: &str) -> Vec<(Range<usize>, WikiLink)> {
     let mut out = Vec::new();
     let mut offset: usize = 0;
     let mut in_fence = false;
+    let mut in_html_comment = false;
     let re = wikilink_re();
     for line in body.split_inclusive('\n') {
         let trimmed = line.trim_start();
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             in_fence = !in_fence;
         } else if !in_fence {
+            let ignored = ignored_ranges(line, &mut in_html_comment);
             for m in re.captures_iter(line) {
                 let full = m.get(0).unwrap();
+                if overlaps_ignored(full.start()..full.end(), &ignored) {
+                    continue;
+                }
                 let embed = m.get(1).is_some();
                 let content = m.get(2).unwrap().as_str();
                 let link = parse_content(content, embed);
@@ -43,6 +48,83 @@ pub fn find_all(body: &str) -> Vec<(Range<usize>, WikiLink)> {
         offset += line.len();
     }
     out
+}
+
+fn ignored_ranges(line: &str, in_html_comment: &mut bool) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    collect_html_comment_ranges(line, in_html_comment, &mut ranges);
+    collect_inline_code_ranges(line, &mut ranges);
+    ranges
+}
+
+fn collect_html_comment_ranges(
+    line: &str,
+    in_html_comment: &mut bool,
+    ranges: &mut Vec<Range<usize>>,
+) {
+    let mut pos = 0;
+    if *in_html_comment {
+        if let Some(end) = line.find("-->") {
+            let end = end + 3;
+            ranges.push(0..end);
+            pos = end;
+            *in_html_comment = false;
+        } else {
+            ranges.push(0..line.len());
+            return;
+        }
+    }
+
+    while let Some(start_rel) = line[pos..].find("<!--") {
+        let start = pos + start_rel;
+        if let Some(end_rel) = line[start + 4..].find("-->") {
+            let end = start + 4 + end_rel + 3;
+            ranges.push(start..end);
+            pos = end;
+        } else {
+            ranges.push(start..line.len());
+            *in_html_comment = true;
+            break;
+        }
+    }
+}
+
+fn collect_inline_code_ranges(line: &str, ranges: &mut Vec<Range<usize>>) {
+    let bytes = line.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos] != b'`' {
+            pos += 1;
+            continue;
+        }
+        let start = pos;
+        let ticks = count_backticks(bytes, pos);
+        pos += ticks;
+        let mut end = bytes.len();
+        while pos < bytes.len() {
+            if bytes[pos] == b'`' && count_backticks(bytes, pos) == ticks {
+                end = pos + ticks;
+                break;
+            }
+            pos += 1;
+        }
+        ranges.push(start..end);
+        pos = end;
+    }
+}
+
+fn count_backticks(bytes: &[u8], start: usize) -> usize {
+    let mut n = 0;
+    while start + n < bytes.len() && bytes[start + n] == b'`' {
+        n += 1;
+    }
+    n
+}
+
+fn overlaps_ignored(range: Range<usize>, ignored: &[Range<usize>]) -> bool {
+    ignored
+        .iter()
+        .any(|r| range.start < r.end && r.start < range.end)
 }
 
 fn parse_content(s: &str, embed: bool) -> WikiLink {
@@ -187,6 +269,21 @@ mod tests {
     #[test]
     fn skips_wikilinks_in_fenced_code_blocks() {
         let body = "real [[Yes]]\n```\n[[No]]\n```\nafter [[Also]]";
+        let links = find_all(body);
+        let targets: Vec<_> = links.iter().map(|(_, l)| l.target.clone()).collect();
+        assert_eq!(targets, vec!["Yes", "Also"]);
+    }
+
+    #[test]
+    fn skips_wikilinks_in_inline_code() {
+        let links = find_all("real [[Yes]] and `[[No]]` and ``[[AlsoNo]]``");
+        let targets: Vec<_> = links.iter().map(|(_, l)| l.target.clone()).collect();
+        assert_eq!(targets, vec!["Yes"]);
+    }
+
+    #[test]
+    fn skips_wikilinks_in_html_comments() {
+        let body = "real [[Yes]] <!-- [[No]] -->\n<!--\n[[AlsoNo]]\n-->\nafter [[Also]]";
         let links = find_all(body);
         let targets: Vec<_> = links.iter().map(|(_, l)| l.target.clone()).collect();
         assert_eq!(targets, vec!["Yes", "Also"]);

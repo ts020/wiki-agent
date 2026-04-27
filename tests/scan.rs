@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use md_wiki::scan::{ScanConfig, scan};
+use md_wiki::scan::{ScanConfig, scan, scan_single_file};
 use tempfile::TempDir;
 
 fn rel_names(files: &[md_wiki::scan::ScannedFile]) -> Vec<PathBuf> {
@@ -103,6 +103,23 @@ fn skips_invalid_utf8() {
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("good.txt")));
     assert!(!paths.contains(&PathBuf::from("bad.txt")));
+}
+
+#[test]
+fn single_file_scan_uses_same_binary_guards() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    let bad = root.join("bad.md");
+    fs::write(&bad, [b'h', 0x00, b'i']).unwrap();
+    let good = root.join("good.md");
+    fs::write(&good, "hello").unwrap();
+
+    assert!(scan_single_file(&bad).is_none());
+    assert_eq!(
+        scan_single_file(&good).map(|f| f.relative_path),
+        Some(PathBuf::from("good.md"))
+    );
 }
 
 #[test]
