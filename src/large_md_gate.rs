@@ -365,7 +365,19 @@ fn render_entry(source: &SourceGeneration, leaves: &[&PagePlan]) -> String {
     let title = source.spec.name.trim_end_matches(".md");
     let mut out = String::new();
     out.push_str(&format!("# {title}\n\n"));
+    out.push_str(&format!("- Leaf pages: `{}`\n\n", leaves.len()));
     out.push_str("## Pages\n\n");
+    if leaves.len() > 500 {
+        if let Some(first) = leaves.first() {
+            let file = first.output_path.file_name().unwrap().to_string_lossy();
+            out.push_str(&format!("- [First]({file})\n"));
+        }
+        if let Some(last) = leaves.last() {
+            let file = last.output_path.file_name().unwrap().to_string_lossy();
+            out.push_str(&format!("- [Last]({file})\n"));
+        }
+        return out;
+    }
     for leaf in leaves {
         let file = leaf.output_path.file_name().unwrap().to_string_lossy();
         out.push_str(&format!("- [{}]({})\n", leaf.page_id, file));
@@ -594,11 +606,20 @@ fn write_paged_index(dir: &Path, title: &str, lines: &[String], force_paging: bo
         return Ok(());
     }
 
-    let mut index = format!("# {title}\n\n");
-    for i in 0..pages.len() {
+    let mut index = format!("# {title}\n\n- Paged index pages: `{}`\n", pages.len());
+    if pages.len() <= 500 {
+        for i in 0..pages.len() {
+            index.push_str(&format!(
+                "- [Page {number}](page-{number:03}.md)\n",
+                number = i + 1
+            ));
+        }
+    } else {
+        index.push_str("- Full page list omitted to keep this manifest within budget.\n");
+        index.push_str("- [First page](page-001.md)\n");
         index.push_str(&format!(
-            "- [Page {number}](page-{number:03}.md)\n",
-            number = i + 1
+            "- [Last page](page-{number:03}.md)\n",
+            number = pages.len()
         ));
     }
     fs::write(dir.join("index.md"), index)?;
