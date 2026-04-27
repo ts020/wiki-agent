@@ -63,7 +63,7 @@ pub fn compute_relations(nodes: &mut [Node], graph: &LinkGraph, _tag_index: &Tag
         results.push((related, backlinks));
     }
 
-    for (n, (related, backlinks)) in nodes.iter_mut().zip(results.into_iter()) {
+    for (n, (related, backlinks)) in nodes.iter_mut().zip(results) {
         n.related = related;
         n.backlinks = backlinks;
     }
