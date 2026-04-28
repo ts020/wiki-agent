@@ -23,9 +23,13 @@
 17. [継続検証と品質スコア](17-継続検証と品質スコア.md)
 18. [巨大 Markdown 対応 完了条件](18-巨大Markdown対応完了条件.md)
 19. [巨大 Markdown 対応 設計と機械検証](19-巨大Markdown対応設計と機械検証.md)
+20. [ツール使用型エージェント向け探索仕様と設計](20-ツール使用型エージェント向け探索仕様と設計.md)
+21. [Agentic Search 実装作業計画](21-agentic-search実装作業計画.md)
 
 ## 改訂履歴
 
+- vNext-agentic-search-plan (2026-04-28): ツール使用型エージェント向け探索仕様を、機械的に検査可能な完了条件付き作業タスクへ分解
+- vNext-agentic-search-design (2026-04-28): Qwen3 等の 128k コンテキスト・ツール使用型エージェントが生成 wiki を探索するための出力契約、metadata、CLI 統合、検証 gate 設計を追加
 - vNext-large-md-byte-window (2026-04-28): 改行を含まない 3 MiB 級単一段落を byte window で検証・分割する条件を追加
 - vNext-large-md-design (2026-04-28): 巨大 Markdown 対応の実装設計、JSON gate report、通常 gate / heavy gate の機械検証方法を追加
 - vNext-large-md (2026-04-28): 2 MiB 超〜200 MiB 級 Markdown を agentic search 向けページ群へ変換するための完了条件を追加
