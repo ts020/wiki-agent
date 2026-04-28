@@ -269,7 +269,8 @@ heavy gate は以下をすべて満たした場合のみ合格とする。
 4. `SectionTreeBuilder` と `PagePlanner` を実装する
 5. `RangeRenderer` と metadata 出力を実装する
 6. `IndexPager` を導入し、巨大 indexes を 40,000 文字以内へ分割する
-7. normal gate を `scripts/verify.sh` に追加する
-8. heavy gate を CI の明示実行 job として追加する
+7. [20 章](20-ツール使用型エージェント向け探索仕様と設計.md) の agent guide / page catalog / term index を生成する
+8. normal gate を `scripts/verify.sh` に追加する
+9. heavy gate を CI の明示実行 job として追加する
 
 各段階は、既存 AC-01〜AC-23 の `cargo test` と品質スコアを落とさないことを前提にする。
