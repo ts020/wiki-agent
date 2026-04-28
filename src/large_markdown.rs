@@ -356,7 +356,14 @@ pub fn plan_leaf_pages(
         estimated_chars: 0,
     }];
 
-    let chunk_limit = hard_limit.saturating_sub(10_000).max(1_000);
+    // `safe_split_offsets` are recorded at fixed `BYTE_WINDOW_CHAR_TARGET` intervals during
+    // scan, so byte-window chunks can only be reduced down to that granularity. Clamp the
+    // chunk limit to that floor (plus a 10k metadata reserve) so byte-window splits cannot
+    // exceed the caller's hard_limit; pick a smaller `BYTE_WINDOW_CHAR_TARGET` if a tighter
+    // hard_limit needs to be honoured.
+    let chunk_limit = hard_limit
+        .saturating_sub(10_000)
+        .max(BYTE_WINDOW_CHAR_TARGET);
     let split_reason = choose_split_reason(line_report, section_tree, chunk_limit);
     let chunks = chunk_lines(&line_report.lines, chunk_limit, split_reason);
     let chunk_count = chunks.len();
