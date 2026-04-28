@@ -22,9 +22,12 @@
 16. [設計判断](16-設計判断.md)
 17. [継続検証と品質スコア](17-継続検証と品質スコア.md)
 18. [巨大 Markdown 対応 完了条件](18-巨大Markdown対応完了条件.md)
+19. [巨大 Markdown 対応 設計と機械検証](19-巨大Markdown対応設計と機械検証.md)
 
 ## 改訂履歴
 
+- vNext-large-md-byte-window (2026-04-28): 改行を含まない 3 MiB 級単一段落を byte window で検証・分割する条件を追加
+- vNext-large-md-design (2026-04-28): 巨大 Markdown 対応の実装設計、JSON gate report、通常 gate / heavy gate の機械検証方法を追加
 - vNext-large-md (2026-04-28): 2 MiB 超〜200 MiB 級 Markdown を agentic search 向けページ群へ変換するための完了条件を追加
 - v1.2.1 (2026-04-28): AC-01〜23 の継続検証マトリクス、品質スコア判定基準、コミット単位のスコア履歴運用を追加
 - v1.2 (2026-04-21): 128k コンテキスト前提（1 ページ 40,000 文字以内）を非機能要件として明文化。階層サマリ `_index.md`（FR-16、Hugo 風命名）を追加し、ルート `index.md` の全ノート列挙を廃止してサイトマップ型へ縮減。AC-21〜23 を追補
