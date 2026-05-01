@@ -13,6 +13,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::agentic_output::finalize_agentic_output;
 use crate::link::{LinkGraph, Resolver, UnresolvedLink};
 use crate::model::{Node, iter_pages};
 
@@ -84,6 +85,8 @@ pub fn write_wiki(output_root: &Path, out: &WikiOutput<'_>) -> Result<()> {
 
     let idx = index::render_index(out.project_title, out.nodes, out.unresolved, &tag_index);
     write_page(output_root, Path::new("index.md"), &idx)?;
+
+    finalize_agentic_output(output_root)?;
 
     Ok(())
 }

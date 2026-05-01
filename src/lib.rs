@@ -1,10 +1,16 @@
+pub mod agentic_output;
+pub mod agentic_search_gate;
 pub mod build;
 pub mod fragment;
+pub mod input_classifier;
 pub mod large_markdown;
 pub mod large_md_gate;
 pub mod link;
+pub mod metadata_renderer;
 pub mod model;
 pub mod notes;
+pub mod page_registry;
+pub mod regular_page_plan;
 pub mod relations;
 pub mod render;
 pub mod scan;

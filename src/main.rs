@@ -2,7 +2,9 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
+use md_wiki::agentic_output::{finalize_agentic_output, write_large_markdown_pages};
 use md_wiki::build::build_nodes;
+use md_wiki::input_classifier::{InputKind, classify_scanned};
 use md_wiki::link::resolve_all;
 use md_wiki::notes::ingest_notes;
 use md_wiki::relations::compute_relations;
@@ -82,7 +84,24 @@ fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|| "md-wiki".to_string())
     };
 
-    let notes_data = ingest_notes(&files, &root);
+    let classified = classify_scanned(&root, &files);
+    let regular_files: Vec<_> = files
+        .iter()
+        .filter(|file| {
+            classified.iter().any(|class| {
+                class.relative_path == file.relative_path
+                    && class.kind == InputKind::RegularMarkdown
+            })
+        })
+        .cloned()
+        .collect();
+    let large_files: Vec<_> = classified
+        .iter()
+        .filter(|class| class.kind == InputKind::LargeMarkdown)
+        .map(|class| class.relative_path.clone())
+        .collect();
+
+    let notes_data = ingest_notes(&regular_files, &root);
     if notes_data.len() > NOTE_COUNT_WARN {
         tracing::warn!(
             notes = notes_data.len(),
@@ -103,6 +122,10 @@ fn main() -> anyhow::Result<()> {
             graph: &graph,
         },
     )?;
+    if !large_files.is_empty() {
+        write_large_markdown_pages(&cli.out, &root, &large_files)?;
+        finalize_agentic_output(&cli.out)?;
+    }
 
     tracing::info!(
         input = %cli.input.display(),

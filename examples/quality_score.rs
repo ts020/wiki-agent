@@ -402,7 +402,9 @@ fn navigation_check(pages: &BTreeMap<PathBuf, String>, nodes: &[Node]) -> ScoreC
             pages
                 .get(*path)
                 .map(|body| {
-                    let mut lines = body.lines();
+                    let mut lines = body
+                        .lines()
+                        .skip_while(|line| !line.starts_with("> Parent: "));
                     !matches!(lines.next(), Some(line) if line.starts_with("> Parent: "))
                         || !matches!(lines.next(), Some("---"))
                 })

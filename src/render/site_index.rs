@@ -147,6 +147,25 @@ fn render_page(
             );
         }
         s.push('\n');
+
+        let _ = writeln!(&mut s, "## Directory Preview");
+        s.push('\n');
+        for sub in &info.direct_subsections {
+            let name = sub
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let sub_info = tree.get(sub).expect("subsection tracked in tree");
+            let _ = writeln!(
+                &mut s,
+                "- [{name}]({name}/_index.md) — {} notes, {} fragments",
+                sub_info.recursive_note_count, sub_info.recursive_fragment_count
+            );
+            for title in example_titles(sub, nodes).into_iter().take(3) {
+                let _ = writeln!(&mut s, "  - {}", link_label(&title));
+            }
+        }
+        s.push('\n');
     }
 
     if !info.direct_notes.is_empty() {
@@ -168,6 +187,16 @@ fn render_page(
     }
 
     s
+}
+
+fn example_titles(dir: &Path, nodes: &[Node]) -> Vec<String> {
+    let mut titles: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.entry_dir.starts_with(dir))
+        .map(|n| n.title.clone())
+        .collect();
+    titles.sort();
+    titles
 }
 
 #[cfg(test)]

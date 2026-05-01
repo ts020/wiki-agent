@@ -3,11 +3,14 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use regex::Regex;
 
 use super::paths::{fragment_leaf_path, h3_leaf_path, relative_link, shell_index_path};
 use super::text::link_label;
 use crate::fragment::{Fragment, FragmentTree};
-use crate::link::{Resolver, wikilink};
+use crate::link::{Resolution, Resolver, wikilink};
 use crate::model::Node;
 
 /// 1 ページ分のレンダリング結果。
@@ -61,6 +64,7 @@ pub fn render_pages(
 fn render_entry(node: &Node, titles: &BTreeMap<PathBuf, String>, resolver: &Resolver) -> String {
     let from = &node.output_path;
     let (preface, _, _) = wikilink::resolve_in(&node.fragments.preface, from, from, resolver);
+    let preface = resolve_markdown_links(&preface, from, &node.note.source_file, from, resolver);
 
     let fragments_section = build_fragments_section(node, from);
     let backlinks_section = build_backlinks_section(node, from, titles);
@@ -85,6 +89,13 @@ fn render_h2_leaf(
         _ => unreachable!("render_h2_leaf called on non-H2 fragment"),
     };
     let (body, _, _) = wikilink::resolve_in(body_raw, page_path, &node.output_path, resolver);
+    let body = resolve_markdown_links(
+        &body,
+        page_path,
+        &node.note.source_file,
+        &node.output_path,
+        resolver,
+    );
     let head = build_h2_nav(node, idx, page_path);
     let backlinks = build_backlinks_section(node, page_path, titles);
     assemble(Some(head), body, &[backlinks])
@@ -102,6 +113,13 @@ fn render_shell(
         _ => unreachable!("render_shell called on non-Shell fragment"),
     };
     let (preface, _, _) = wikilink::resolve_in(preface_raw, page_path, &node.output_path, resolver);
+    let preface = resolve_markdown_links(
+        &preface,
+        page_path,
+        &node.note.source_file,
+        &node.output_path,
+        resolver,
+    );
     let head = build_shell_nav(node, page_path);
     let children_section = build_shell_children_section(node, idx, page_path);
     let backlinks = build_backlinks_section(node, page_path, titles);
@@ -138,6 +156,13 @@ fn render_h3_leaf(
         _ => unreachable!("render_h3_leaf called on non-Shell fragment"),
     };
     let (body, _, _) = wikilink::resolve_in(body_raw, page_path, &node.output_path, resolver);
+    let body = resolve_markdown_links(
+        &body,
+        page_path,
+        &node.note.source_file,
+        &node.output_path,
+        resolver,
+    );
     let head = build_h3_nav(node, h2_idx, h3_idx, page_path);
     let backlinks = build_backlinks_section(node, page_path, titles);
     assemble(Some(head), body, &[backlinks])
@@ -218,6 +243,49 @@ fn append_link_item(s: &mut String, from: &Path, to: &Path, titles: &BTreeMap<Pa
         .unwrap_or_else(|| to.display().to_string());
     let link = relative_link(from, to);
     let _ = writeln!(s, "- [{}]({link})", link_label(&title));
+}
+
+fn resolve_markdown_links(
+    body: &str,
+    page_path: &Path,
+    source_file: &Path,
+    entry_path: &Path,
+    resolver: &Resolver,
+) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\[([^\]\n]+)\]\(([^)\s]+)\)").unwrap())
+        .replace_all(body, |caps: &regex::Captures<'_>| {
+            let label = &caps[1];
+            let target = &caps[2];
+            if is_external_link(target) || !is_markdown_target(target) {
+                return caps[0].to_string();
+            }
+            let resolved = resolver.resolve_markdown_target(target, source_file, entry_path);
+            let Some(target_path) = output_path_for_resolution(resolved) else {
+                return caps[0].to_string();
+            };
+            format!("[{label}]({})", relative_link(page_path, &target_path))
+        })
+        .to_string()
+}
+
+fn is_external_link(target: &str) -> bool {
+    target.starts_with("http://") || target.starts_with("https://") || target.starts_with("mailto:")
+}
+
+fn is_markdown_target(target: &str) -> bool {
+    let path_part = target.split('#').next().unwrap_or(target);
+    path_part.is_empty() || Path::new(path_part).extension().and_then(|s| s.to_str()) == Some("md")
+}
+
+fn output_path_for_resolution(resolution: Resolution) -> Option<PathBuf> {
+    match resolution {
+        Resolution::Entry(path) | Resolution::Page(path) => Some(path),
+        Resolution::EntryAnchor(path, slug) => {
+            Some(PathBuf::from(format!("{}#{slug}", path.display())))
+        }
+        Resolution::Missing => None,
+    }
 }
 
 fn build_h2_nav(node: &Node, idx: usize, page_path: &Path) -> String {

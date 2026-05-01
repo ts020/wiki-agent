@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 use walkdir::{DirEntry, WalkDir};
 
-const MAX_FILE_SIZE: u64 = 1024 * 1024;
 const PEEK_BYTES: usize = 8192;
 const FILE_COUNT_WARN: usize = 10_000;
 const DEPTH_WARN: usize = 20;
@@ -38,14 +37,6 @@ pub fn scan_single_file(path: &Path) -> Option<ScannedFile> {
             return None;
         }
     };
-    if metadata.len() > MAX_FILE_SIZE {
-        tracing::warn!(
-            path = %rel.display(),
-            size = metadata.len(),
-            "file exceeds 1 MiB, skipping"
-        );
-        return None;
-    }
     if !is_probably_text(path, &rel) {
         return None;
     }
@@ -111,15 +102,6 @@ pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
                 continue;
             }
         };
-
-        if metadata.len() > MAX_FILE_SIZE {
-            tracing::warn!(
-                path = %rel.display(),
-                size = metadata.len(),
-                "file exceeds 1 MiB, skipping"
-            );
-            continue;
-        }
 
         if !is_probably_text(entry.path(), &rel) {
             continue;
