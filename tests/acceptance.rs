@@ -185,6 +185,74 @@ fn heading_index_links_to_entry_and_fragments() {
     assert!(headings.contains("../fragments/b/b-sub.md"));
 }
 
+#[test]
+fn root_index_contains_bounded_contents_preview() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("backbone")).unwrap();
+    fs::create_dir_all(target.join("scenario")).unwrap();
+    fs::write(target.join("backbone/world.md"), "# World\n\n## Nations\n").unwrap();
+    fs::write(target.join("scenario/route.md"), "# Route\n\n## Politics\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let idx = fs::read_to_string(output.join("index.md")).unwrap();
+    assert!(idx.contains("## Contents Preview"));
+    assert!(idx.contains("- [backbone](fragments/backbone/_index.md) — 1 notes, 1 fragments"));
+    assert!(idx.contains("- [scenario](fragments/scenario/_index.md) — 1 notes, 1 fragments"));
+    assert!(idx.contains("### Headings Preview"));
+    assert!(idx.contains("World"));
+    assert!(idx.contains("Nations"));
+    assert!(
+        !idx.contains("(fragments/backbone/world/index.md)"),
+        "root preview must not become a full note listing: {idx}"
+    );
+}
+
+#[test]
+fn fragments_index_shows_directory_density_and_examples() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(target.join("backbone")).unwrap();
+    fs::write(target.join("backbone/world.md"), "# World\n\n## Nations\n").unwrap();
+    fs::write(target.join("backbone/chronology.md"), "# Chronology\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let root_idx = fs::read_to_string(output.join("fragments/_index.md")).unwrap();
+    assert!(root_idx.contains("- [backbone](backbone/_index.md) — 2 notes, 1 fragments"));
+    assert!(root_idx.contains("  - Chronology"));
+    assert!(root_idx.contains("  - World"));
+}
+
+#[test]
+fn relative_markdown_links_resolve_to_generated_pages() {
+    let tmp = TempDir::new().unwrap();
+    let target = tmp.path().join("project");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(
+        target.join("a.md"),
+        "# A\n\nSee [B](b.md) and [B Design](b.md#Design).\n",
+    )
+    .unwrap();
+    fs::write(target.join("b.md"), "# B\n\n## Design\n\nDetails.\n").unwrap();
+
+    let output = tmp.path().join("out");
+    generate_dir(&target, &output, "project", true);
+
+    let a = fs::read_to_string(output.join("fragments/a/index.md")).unwrap();
+    assert!(
+        a.contains("[B](../b/index.md)"),
+        "entry link was not rewritten: {a}"
+    );
+    assert!(
+        a.contains("[B Design](../b/design.md)"),
+        "heading link was not rewritten to the fragment page: {a}"
+    );
+}
+
 /// AC-10: リンク索引。ページ間の参照関係が列挙される
 #[test]
 fn link_index_lists_forward_references_per_page() {
@@ -355,9 +423,10 @@ fn h2_fragments_have_correct_navigation() {
 
     let alpha = fs::read_to_string(output.join("fragments/n/alpha.md")).unwrap();
     // 先頭: Prev 無し・Next あり
+    assert!(alpha.starts_with("---\nmd_wiki:\n"));
     assert!(
-        alpha.starts_with("> Parent: [N](index.md) · Next: [Bravo](bravo.md)\n---\n\n"),
-        "ナビ行の直後に水平線が続くこと: {alpha}"
+        alpha.contains("> Parent: [N](index.md) · Next: [Bravo](bravo.md)\n---\n\n"),
+        "metadata の後にナビ行と水平線が続くこと: {alpha}"
     );
     assert!(alpha.contains("Parent: "));
     assert!(!alpha.contains("Prev:"));

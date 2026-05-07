@@ -31,6 +31,7 @@ Runs the full continuous verification gate:
   3. cargo test
   4. cargo run --example quality_score -- --min-score N
   5. cargo run --example large_md_gate -- --mode normal --min-score 100
+  6. cargo run --example agentic_search_gate -- --mode normal --min-score 100
 
 With --record-score, writes per-commit score reports under DIR.
 USAGE
@@ -57,4 +58,9 @@ cargo run --quiet --example large_md_gate -- \
   --mode normal \
   --work-dir target/large-md-gate \
   --report target/large-md-gate/report.json \
+  --min-score 100
+cargo run --quiet --example agentic_search_gate -- \
+  --mode normal \
+  --work-dir target/agentic-search-gate \
+  --report target/agentic-search-gate/report.json \
   --min-score 100

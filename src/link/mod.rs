@@ -2,12 +2,13 @@ pub mod resolver;
 pub mod slug;
 pub mod wikilink;
 
-pub use resolver::{Resolver, UnresolvedLink};
+pub use resolver::{Resolution, Resolver, UnresolvedLink};
 pub use slug::slugify;
 pub use wikilink::{WikiLink, find_all};
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::model::{Node, iter_pages};
 
@@ -78,6 +79,15 @@ pub fn resolve_all(nodes: &[Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
             for edge in edges {
                 graph.add_edge(&page.output_path, &edge);
             }
+            for target in markdown_link_targets(&page.raw_body) {
+                if let Some(edge) = markdown_resolution_path(resolver.resolve_markdown_target(
+                    &target,
+                    &n.note.source_file,
+                    entry,
+                )) {
+                    graph.add_edge(&page.output_path, &edge);
+                }
+            }
         }
     }
 
@@ -87,6 +97,35 @@ pub fn resolve_all(nodes: &[Node]) -> (Vec<UnresolvedLink>, LinkGraph) {
             .then_with(|| a.target.cmp(&b.target))
     });
     (unresolved, graph)
+}
+
+fn markdown_resolution_path(resolution: resolver::Resolution) -> Option<PathBuf> {
+    match resolution {
+        resolver::Resolution::Entry(path)
+        | resolver::Resolution::EntryAnchor(path, _)
+        | resolver::Resolution::Page(path) => Some(path),
+        resolver::Resolution::Missing => None,
+    }
+}
+
+fn markdown_link_targets(body: &str) -> Vec<String> {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\[[^\]\n]+\]\(([^)\s]+)\)").unwrap())
+        .captures_iter(body)
+        .map(|cap| cap[1].to_string())
+        .filter(|target| is_markdown_target(target))
+        .collect()
+}
+
+fn is_markdown_target(target: &str) -> bool {
+    if target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+    {
+        return false;
+    }
+    let path_part = target.split('#').next().unwrap_or(target);
+    path_part.is_empty() || Path::new(path_part).extension().and_then(|s| s.to_str()) == Some("md")
 }
 
 fn resolve_related_entry(

@@ -50,7 +50,7 @@ fn excludes_hidden_dirs_except_wiki() {
 }
 
 #[test]
-fn skips_files_larger_than_1_mib() {
+fn keeps_large_text_files_for_downstream_classification() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
 
@@ -65,7 +65,12 @@ fn skips_files_larger_than_1_mib() {
     });
     let paths = rel_names(&files);
     assert!(paths.contains(&PathBuf::from("small.txt")));
-    assert!(!paths.contains(&PathBuf::from("big.txt")));
+    assert!(paths.contains(&PathBuf::from("big.txt")));
+    let big = files
+        .iter()
+        .find(|file| file.relative_path == PathBuf::from("big.txt"))
+        .unwrap();
+    assert!(big.size > 1024 * 1024);
 }
 
 #[test]

@@ -11,6 +11,7 @@ use crate::render::paths::{fragment_leaf_path, shell_index_path};
 pub struct Resolver {
     by_basename: BTreeMap<String, Vec<PathBuf>>,
     by_alias: BTreeMap<String, Vec<PathBuf>>,
+    by_source_path: BTreeMap<PathBuf, PathBuf>,
     /// 入口ページ → 当該ノートの h2 解決表
     fragments_by_entry: BTreeMap<PathBuf, FragmentResolution>,
 }
@@ -48,6 +49,8 @@ impl Resolver {
                     .or_default()
                     .push(target.clone());
             }
+            r.by_source_path
+                .insert(normalize_path(&n.note.source_file), target.clone());
             for alias in &n.note.frontmatter.aliases {
                 r.by_alias
                     .entry(alias.clone())
@@ -111,6 +114,67 @@ impl Resolver {
             Resolution::Missing
         }
     }
+
+    pub fn resolve_markdown_target(
+        &self,
+        target: &str,
+        from_source: &Path,
+        from_entry: &Path,
+    ) -> Resolution {
+        let (path_part, heading) = target
+            .split_once('#')
+            .map(|(path, heading)| (path, Some(heading)))
+            .unwrap_or((target, None));
+        if path_part.is_empty() {
+            return self.resolve_heading_on_entry(from_entry.to_path_buf(), heading);
+        }
+        let path = Path::new(path_part);
+        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            return Resolution::Missing;
+        }
+        let source_dir = from_source.parent().unwrap_or(Path::new(""));
+        let normalized = normalize_path(&source_dir.join(path));
+        let Some(entry) = self.by_source_path.get(&normalized).cloned() else {
+            return Resolution::Missing;
+        };
+        self.resolve_heading_on_entry(entry, heading)
+    }
+
+    fn resolve_heading_on_entry(&self, entry: PathBuf, heading: Option<&str>) -> Resolution {
+        let Some(h) = heading else {
+            return Resolution::Entry(entry);
+        };
+        let slug = slugify(h);
+        let Some(fr) = self.fragments_by_entry.get(&entry) else {
+            return Resolution::Missing;
+        };
+        if fr.non_fragmented {
+            if fr.non_frag_h2_slugs.contains(&slug) {
+                Resolution::EntryAnchor(entry, slug)
+            } else {
+                Resolution::Missing
+            }
+        } else if let Some(page) = fr.h2_pages.get(&slug) {
+            Resolution::Page(page.clone())
+        } else {
+            Resolution::Missing
+        }
+    }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(part) => out.push(part),
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {}
+        }
+    }
+    out
 }
 
 fn build_fragment_resolution(n: &Node) -> FragmentResolution {
