@@ -31,15 +31,11 @@ pub fn render_frontmatter(meta: &Metadata) -> String {
     let _ = writeln!(
         out,
         "  output_path: {}",
-        yaml_scalar(&meta.output_path.display().to_string())
+        yaml_scalar(&markdown_path(&meta.output_path))
     );
     let _ = writeln!(out, "  title: {}", yaml_scalar(&meta.title));
     if let Some(source) = &meta.source {
-        let _ = writeln!(
-            out,
-            "  source: {}",
-            yaml_scalar(&source.display().to_string())
-        );
+        let _ = writeln!(out, "  source: {}", yaml_scalar(&markdown_path(source)));
     }
     out.push_str("  section_path:\n");
     for section in &meta.section_path {
@@ -69,7 +65,7 @@ pub fn render_frontmatter(meta: &Metadata) -> String {
     render_optional_path(&mut out, "next", meta.next.as_deref());
     out.push_str("  children:\n");
     for child in &meta.children {
-        let _ = writeln!(out, "    - {}", yaml_scalar(&child.display().to_string()));
+        let _ = writeln!(out, "    - {}", yaml_scalar(&markdown_path(child)));
     }
     if !meta.tags.is_empty() {
         out.push_str("  tags:\n");
@@ -80,7 +76,7 @@ pub fn render_frontmatter(meta: &Metadata) -> String {
     if !meta.outgoing_links.is_empty() {
         out.push_str("  outgoing_links:\n");
         for link in &meta.outgoing_links {
-            let _ = writeln!(out, "    - {}", yaml_scalar(&link.display().to_string()));
+            let _ = writeln!(out, "    - {}", yaml_scalar(&markdown_path(link)));
         }
     }
     let _ = writeln!(out, "  backlinks_count: {}", meta.backlinks_count);
@@ -91,12 +87,16 @@ pub fn render_frontmatter(meta: &Metadata) -> String {
 fn render_optional_path(out: &mut String, key: &str, value: Option<&Path>) {
     match value {
         Some(path) => {
-            let _ = writeln!(out, "  {key}: {}", yaml_scalar(&path.display().to_string()));
+            let _ = writeln!(out, "  {key}: {}", yaml_scalar(&markdown_path(path)));
         }
         None => {
             let _ = writeln!(out, "  {key}:");
         }
     }
+}
+
+pub fn markdown_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 pub fn yaml_scalar(value: &str) -> String {
@@ -143,5 +143,13 @@ mod tests {
         assert!(body.starts_with("---\nmd_wiki:\n"));
         assert!(body.contains("  page_kind: leaf\n"));
         assert!(body.contains("  byte_ranges:\n"));
+    }
+
+    #[test]
+    fn renders_paths_with_markdown_separators() {
+        assert_eq!(
+            markdown_path(Path::new("agent\\pages\\index.md")),
+            "agent/pages/index.md"
+        );
     }
 }
