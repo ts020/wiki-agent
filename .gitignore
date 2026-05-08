@@ -1,5 +1,6 @@
 # Local settings
 .claude/settings.local.json
+.context/
 
 # Rust
 /target

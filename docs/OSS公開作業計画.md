@@ -9,7 +9,7 @@
 - 第三者がライセンス条件を理解した上で利用、再配布、改変できる
 - GitHub リポジトリを公開しても内部作業ファイルやローカル文脈が配布物に混入しない
 - README だけでインストール、最小実行、出力確認、既知の制限を把握できる
-- `cargo package --dry-run` と既存の継続検証 gate が通る
+- `cargo package --locked` と既存の継続検証 gate が通る
 - `v0.1.0` の GitHub Release と、必要に応じて crates.io publish を実行できる
 
 ## 非ゴール
@@ -29,7 +29,7 @@
 | P1 | 要件定義の古い記述 | 1 MiB 超 Markdown の扱いが README / 実装 / 要件で揺れている | large path 対応済みの現行挙動に合わせて要件文を更新する |
 | P1 | README | 初見利用者向けの install、最小例、制限事項、troubleshooting が薄い | README を利用者導線中心に再構成する |
 | P1 | OSS 運用文書 | `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md` がない | 最小でよいので初回公開用に追加する |
-| P2 | CI | Ubuntu のみ。package dry-run、locked test、OS matrix がない | 既存 gate を維持しつつ公開前検証 job を追加する |
+| P2 | CI | Ubuntu のみ。package verification、locked test、OS matrix がない | 既存 gate を維持しつつ公開前検証 job を追加する |
 | P2 | 品質履歴 | `latest.md` が dirty な古い記録を指している | 公開前コミットで再記録する |
 
 ## Phase 1: 公開阻害要因の解消
@@ -49,11 +49,11 @@
    - 内部 agent 用ファイルを crates.io package に含める必要があるか判断する
    - 不要な場合は `package.exclude` で `.context/`, `.agents/`, `.claude/`, `Cargo.toml.orig`, ローカル履歴を除外する
 4. `.gitignore` に `.context/` を追加する。
-5. `cargo package --dry-run` を通す。
+5. `cargo package --locked` を通す。
 
 ### 完了条件
 
-- `cargo package --dry-run` が成功する
+- `cargo package --locked` が成功する
 - `cargo package --no-verify --list` に不要な内部作業ファイルが含まれない
 - ライセンス条件が GitHub と crates.io の両方で読める
 
@@ -62,7 +62,7 @@
 ### 作業
 
 1. `docs/要件定義/07-入力.md` の走査ガードを現行の large Markdown 対応に合わせる。
-2. `docs/要件定義/12-エラー処理.md` の「1 MiB 超はスキップ」を更新する。
+2. `docs/要件定義/12-エラー処理.md` の 1 MiB 超 Markdown の旧スキップ記述を更新する。
 3. `docs/要件定義/15-確定済み仕様.md` の走査上限表を更新する。
 4. v1.2 と vNext / agentic search の境界を、現在の実装状態と矛盾しないよう明記する。
 5. README と docs の内容整合を検査するテストが不足していれば追加する。
@@ -79,7 +79,7 @@
 
 1. インストール方法を追加する。
    - `cargo install --path .`
-   - crates.io 公開後の `cargo install md-wiki`
+   - crates.io 公開後の `cargo install md-wiki-cli`（binary 名は `md-wiki`）
    - GitHub Releases で binary 配布する場合の導線
 2. 最小サンプルを追加する。
    - 入力 Markdown 例
@@ -142,7 +142,7 @@
 
 1. 既存の `.github/workflows/verify.yml` に公開前検証を追加する。
    - `cargo test --locked`
-   - `cargo package --dry-run`
+   - `cargo package --locked`
 2. OS matrix を追加する。
    - `ubuntu-latest`
    - `macos-latest`
@@ -157,7 +157,7 @@
 ### 完了条件
 
 - GitHub Actions が主要 OS で成功する
-- `cargo package --dry-run` が CI で検証される
+- `cargo package --locked` が CI で検証される
 - 品質履歴が公開直前の clean commit を指す
 
 ## Phase 6: 公開
@@ -183,6 +183,7 @@
    - 検証結果
 5. crates.io 公開を行う場合は以下を実行する。
    - crate 名の可用性確認
+   - `md-wiki` は既存 crate と衝突するため、package 名は `md-wiki-cli`、binary 名は `md-wiki` とする
    - `cargo publish --dry-run`
    - `cargo publish`
 6. 公開後の smoke test を行う。
@@ -194,19 +195,19 @@
 ### 完了条件
 
 - GitHub Release `v0.1.0` が作成されている
-- crates.io 公開する場合は `cargo install md-wiki` で導入できる
+- crates.io 公開する場合は `cargo install md-wiki-cli` で `md-wiki` binary を導入できる
 - 公開後 smoke test が成功する
 
 ## 推奨 PR 分割
 
 | PR | 内容 | 主な検証 |
 |---|---|---|
-| PR-1 | License / Cargo metadata / package exclude / `.gitignore` | `cargo package --dry-run`, `scripts/verify.sh` |
+| PR-1 | License / Cargo metadata / package exclude / `.gitignore` | `cargo package --locked`, `scripts/verify.sh` |
 | PR-2 | 要件定義の整合性修正 | `cargo test --test docs`, `scripts/verify.sh` |
 | PR-3 | README 改善 | `cargo test --test docs`, `scripts/verify.sh` |
 | PR-4 | OSS 運用ファイル追加 | markdown review, `scripts/verify.sh` |
 | PR-5 | CI 強化と品質履歴更新 | GitHub Actions, `scripts/verify.sh` |
-| PR-6 | `v0.1.0` release prep | `cargo package --dry-run`, `cargo publish --dry-run`, smoke test |
+| PR-6 | `v0.1.0` release prep | `cargo package --locked`, `cargo publish --dry-run`, smoke test |
 
 ## 最短公開ライン
 
@@ -218,28 +219,28 @@
 4. 1 MiB 超 Markdown の要件記述矛盾が解消されている
 5. README に install と最小例がある
 6. `scripts/verify.sh` が成功する
-7. `cargo package --dry-run` が成功する
+7. `cargo package --locked` が成功する
 
 crates.io 公開は、上記に加えて `CHANGELOG.md`、`cargo publish --dry-run`、fresh install smoke test が完了してから行う。
 
 ## 公開判定チェックリスト
 
-- [ ] License decision is recorded
-- [ ] `LICENSE` exists
-- [ ] `Cargo.toml` has public package metadata
-- [ ] package contents are reviewed
-- [ ] `.context/` and local work files are excluded
-- [ ] README has installation instructions
-- [ ] README has a minimal example
-- [ ] README explains safety and limitations
-- [ ] requirements docs match current large Markdown behavior
-- [ ] `CONTRIBUTING.md` exists
-- [ ] `SECURITY.md` exists
-- [ ] `CHANGELOG.md` exists
-- [ ] issue / PR templates exist
-- [ ] `scripts/verify.sh` passes
-- [ ] `cargo package --dry-run` passes
+- [x] License decision is recorded
+- [x] `LICENSE` exists
+- [x] `Cargo.toml` has public package metadata
+- [x] package contents are reviewed
+- [x] `.context/` and local work files are excluded
+- [x] README has installation instructions
+- [x] README has a minimal example
+- [x] README explains safety and limitations
+- [x] requirements docs match current large Markdown behavior
+- [x] `CONTRIBUTING.md` exists
+- [x] `SECURITY.md` exists
+- [x] `CHANGELOG.md` exists
+- [x] issue / PR templates exist
+- [x] `scripts/verify.sh` passes
+- [x] `cargo package --locked` passes
 - [ ] CI passes on target OSes
 - [ ] quality score history is clean and current
-- [ ] `v0.1.0` release notes are drafted
+- [x] `v0.1.0` release notes are drafted
 - [ ] post-release smoke test passes
