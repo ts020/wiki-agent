@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 
 use crate::agentic_output::finalize_agentic_output;
 use crate::link::{LinkGraph, Resolver, UnresolvedLink};
+use crate::metadata_renderer::markdown_path;
 use crate::model::{Node, iter_pages};
 
 /// 128k コンテキスト前提でのページサイズ上限（§9, AC-23）。超過時は warn ログ。
@@ -131,7 +132,7 @@ fn write_page(root: &Path, rel: &Path, body: &str) -> Result<()> {
     let chars = body.chars().count();
     if chars > PAGE_CHAR_LIMIT {
         tracing::warn!(
-            path = %rel.display(),
+            path = %markdown_path(rel),
             chars,
             limit = PAGE_CHAR_LIMIT,
             "page exceeds 128k-context soft limit"
