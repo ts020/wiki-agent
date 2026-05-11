@@ -11,6 +11,7 @@ use crate::agentic_output::{finalize_agentic_output, write_large_markdown_pages}
 use crate::build::build_nodes;
 use crate::input_classifier::{InputKind, classify_scanned};
 use crate::link::resolve_all;
+use crate::metadata_renderer::markdown_path;
 use crate::notes::ingest_notes;
 use crate::relations::compute_relations;
 use crate::render::tags::build_tag_index;
@@ -553,7 +554,7 @@ fn validate_catalog(root: &Path, pages: &[(PathBuf, String)]) -> Result<bool> {
         if path.starts_with("agent/pages/page-") {
             continue;
         }
-        if !page_catalog.contains(&path.display().to_string()) {
+        if !page_catalog.contains(&markdown_path(path)) {
             return Ok(false);
         }
         if !seen.insert(path.clone()) {
@@ -843,6 +844,22 @@ pub mod tests {
         ] {
             assert!(all.contains(marker), "missing fixture marker: {marker}");
         }
+    }
+
+    #[test]
+    fn catalog_validation_matches_markdown_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let catalog_dir = temp.path().join("agent/pages");
+        fs::create_dir_all(&catalog_dir).unwrap();
+        fs::write(
+            catalog_dir.join("index.md"),
+            "| path | kind |\n| --- | --- |\n| agent/index.md | guide |\n",
+        )
+        .unwrap();
+
+        let pages = vec![(PathBuf::from("agent\\index.md"), String::new())];
+
+        assert!(validate_catalog(temp.path(), &pages).unwrap());
     }
 
     #[test]

@@ -8,9 +8,31 @@ on:
 
 jobs:
   verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run locked tests
+        run: cargo test --locked
+      - name: Run continuous verification
+        shell: bash
+        run: bash scripts/verify.sh
+
+  package:
+    name: package verification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run continuous verification
-        run: scripts/verify.sh
+      - name: Check package contents
+        run: cargo package --no-verify --list
+      - name: Run package verification
+        run: cargo package --locked

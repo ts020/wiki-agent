@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 
 use crate::large_markdown::{self, LineRange, PageKind, PagePlan};
-use crate::metadata_renderer::{Metadata, render_frontmatter};
+use crate::metadata_renderer::{Metadata, markdown_path, render_frontmatter};
 use crate::notes::headings;
 
 pub const PAGE_CHAR_LIMIT: usize = 40_000;
@@ -234,13 +234,13 @@ fn with_plan_metadata(
 fn nav_line(plan: &PagePlan) -> String {
     let mut out = String::new();
     if let Some(parent) = &plan.parent {
-        let _ = write!(out, "> Parent: [Parent]({})", parent.display());
+        let _ = write!(out, "> Parent: [Parent]({})", markdown_path(parent));
     }
     if let Some(prev) = &plan.prev {
-        let _ = write!(out, " · Prev: [Prev]({})", prev.display());
+        let _ = write!(out, " · Prev: [Prev]({})", markdown_path(prev));
     }
     if let Some(next) = &plan.next {
-        let _ = write!(out, " · Next: [Next]({})", next.display());
+        let _ = write!(out, " · Next: [Next]({})", markdown_path(next));
     }
     out.push('\n');
     out
@@ -272,7 +272,7 @@ fn ensure_metadata_for_existing_pages(root: &Path) -> Result<()> {
 }
 
 fn infer_metadata(root: &Path, rel: &Path, body: &str) -> Metadata {
-    let title = first_heading(body).unwrap_or_else(|| rel.display().to_string());
+    let title = first_heading(body).unwrap_or_else(|| markdown_path(rel));
     let page_kind = infer_page_kind(rel);
     let (parent, prev, next) = nav_targets(body);
     let children = child_links(root, rel, body);
@@ -453,7 +453,7 @@ fn write_agent_guide(root: &Path) -> Result<()> {
     body.push_str("- Keep source, line range, and generated page path as evidence\n\n");
     body.push_str("## Indexes\n\n");
     for child in &children {
-        let label = child.display();
+        let label = markdown_path(child);
         let _ = writeln!(body, "- [{label}]({label})");
     }
     body.push_str("\n## Query Routing\n\n");
@@ -532,15 +532,15 @@ fn write_page_catalog(root: &Path) -> Result<()> {
         index_body.push_str(&catalog_table(&rows));
     } else {
         for (idx, child) in children.iter().enumerate() {
-            let label = child.display();
+            let label = markdown_path(child);
             let page_rows = &pages[idx];
             let first = page_rows
                 .first()
-                .map(|row| row.path.display().to_string())
+                .map(|row| markdown_path(&row.path))
                 .unwrap_or_default();
             let last = page_rows
                 .last()
-                .map(|row| row.path.display().to_string())
+                .map(|row| markdown_path(&row.path))
                 .unwrap_or_default();
             let _ = writeln!(
                 index_body,
@@ -630,11 +630,12 @@ fn write_by_source_catalog(root: &Path, rows: &[CatalogRow]) -> Result<Vec<Catal
         let mut body = format!("# {source}\n\n");
         body.push_str("| generated page | kind | title | chars |\n|---|---|---|---:|\n");
         for row in &source_rows {
+            let row_path = markdown_path(&row.path);
             let _ = writeln!(
                 body,
                 "| [{}](../../../{}) | `{}` | {} | {} |",
-                escape_table(&row.path.display().to_string()),
-                row.path.display(),
+                escape_table(&row_path),
+                row_path,
                 escape_table(&row.kind),
                 escape_table(&row.title),
                 row.chars
@@ -768,9 +769,8 @@ fn catalog_rows(root: &Path) -> Result<Vec<CatalogRow>> {
         let body = fs::read_to_string(root.join(&rel))?;
         rows.push(CatalogRow {
             kind: metadata_value(&body, "page_kind").unwrap_or_else(|| infer_page_kind(&rel)),
-            title: metadata_value(&body, "title").unwrap_or_else(|| {
-                first_heading(&body).unwrap_or_else(|| rel.display().to_string())
-            }),
+            title: metadata_value(&body, "title")
+                .unwrap_or_else(|| first_heading(&body).unwrap_or_else(|| markdown_path(&rel))),
             source: metadata_value(&body, "source").unwrap_or_default(),
             section: section_path_for(&rel).join(" > "),
             chars: body.chars().count(),
@@ -817,10 +817,11 @@ fn catalog_table_header() -> String {
 }
 
 fn catalog_row(row: &CatalogRow) -> String {
+    let path = markdown_path(&row.path);
     format!(
         "| [{}](../../{}) | `{}` | {} | {} | {} | {} | {} | {} | {} |\n",
-        escape_table(&row.path.display().to_string()),
-        row.path.display(),
+        escape_table(&path),
+        path,
         escape_table(&row.kind),
         escape_table(&row.title),
         escape_table(&row.source),
@@ -875,7 +876,7 @@ fn write_term_index(root: &Path) -> Result<()> {
         body.push_str(&term_table(&rows));
     } else {
         for child in &children {
-            let label = child.display();
+            let label = markdown_path(child);
             let _ = writeln!(body, "- [{label}]({label})");
         }
     }
@@ -1030,7 +1031,10 @@ fn term_row(row: &TermRow) -> String {
     let mut page_links = pages
         .iter()
         .take(MAX_TERM_PAGE_LINKS)
-        .map(|page| format!("[{}](../../{})", page.display(), page.display()))
+        .map(|page| {
+            let path = markdown_path(page);
+            format!("[{path}](../../{path})")
+        })
         .collect::<Vec<_>>()
         .join(", ");
     if remaining > 0 {

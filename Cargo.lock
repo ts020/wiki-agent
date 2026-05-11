@@ -257,7 +257,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "md-wiki"
+name = "md-wiki-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
