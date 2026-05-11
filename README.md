@@ -28,22 +28,24 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ts020/wiki-agent/releas
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/ts020/wiki-agent/releases/latest/download/md-wiki-cli-installer.ps1 | iex"
 ```
 
-どちらも [cargo-dist](https://github.com/axodotdev/cargo-dist) 生成の installer で、GitHub Release から対象 OS のアーカイブを取得し、checksum 検証のうえ `~/.local/bin/md-wiki`（Windows は `%LocalAppData%\md-wiki`）にインストールします。
+どちらも [cargo-dist](https://github.com/axodotdev/cargo-dist) 生成の installer で、GitHub Release から対象 OS のアーカイブを取得し、checksum 検証のうえ既定では `$CARGO_HOME/bin/md-wiki`（未設定なら `~/.cargo/bin/md-wiki`）にインストールします。
 
 ### バージョンを固定する
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ts020/wiki-agent/releases/download/v0.1.2/md-wiki-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ts020/wiki-agent/releases/download/v0.1.3/md-wiki-cli-installer.sh | sh
 ```
 
 ### インストール先を変える
 
-`MD_WIKI_CLI_INSTALL_DIR` （または共通の `CARGO_DIST_FORCE_INSTALL_DIR`）でインストール先ディレクトリを上書きできます。
+`MD_WIKI_CLI_INSTALL_DIR` を指定すると、その配下の `bin/` に binary が置かれます（hierarchical layout）。たとえば `MD_WIKI_CLI_INSTALL_DIR="$HOME/opt/md-wiki"` を渡すと、実体は `$HOME/opt/md-wiki/bin/md-wiki` に展開されます。
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ts020/wiki-agent/releases/latest/download/md-wiki-cli-installer.sh \
-  | MD_WIKI_CLI_INSTALL_DIR="$HOME/bin" sh
+  | MD_WIKI_CLI_INSTALL_DIR="$HOME/opt/md-wiki" MD_WIKI_CLI_NO_MODIFY_PATH=1 sh
 ```
+
+`MD_WIKI_CLI_NO_MODIFY_PATH=1` を設定すると shell rc ファイルへの自動 PATH 追記を抑止できます。
 
 crates.io の package 名は `md-wiki-cli` ですが、binary name is still `md-wiki` です。
 
@@ -93,11 +95,11 @@ md-wiki --help
 ### アップグレード / アンインストール
 
 ```sh
-# 最新へ更新
+# 最新へ更新（既存と同じ場所にインストールされる）
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ts020/wiki-agent/releases/latest/download/md-wiki-cli-installer.sh | sh
 
-# 削除
-rm "$HOME/.local/bin/md-wiki"
+# 削除（既定インストール先）
+rm "$HOME/.cargo/bin/md-wiki"
 ```
 
 ## 最小例

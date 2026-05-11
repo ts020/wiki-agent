@@ -2,6 +2,14 @@
 
 All notable changes to md-wiki are documented in this file.
 
+## 0.1.3 - 2026-05-11
+
+Documentation cleanup release. No behavior change in the `md-wiki` binary itself.
+
+- Correct the install section of `README.md` to match `dist`'s actual installer behavior: the default destination is `$CARGO_HOME/bin/md-wiki` (`~/.cargo/bin/md-wiki` when unset), not `~/.local/bin/md-wiki`, and `MD_WIKI_CLI_INSTALL_DIR` puts the binary under `<dir>/bin/` (hierarchical layout), not directly under `<dir>`.
+- Document `MD_WIKI_CLI_NO_MODIFY_PATH=1` as the way to skip the shell-rc PATH addition the installer performs by default.
+- Update the version-pinned curl example to `v0.1.3` and fix the uninstall path accordingly.
+
 ## 0.1.2 - 2026-05-11
 
 Release pipeline migrated to [cargo-dist](https://github.com/axodotdev/cargo-dist). The `md-wiki` binary itself is unchanged.
