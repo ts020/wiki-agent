@@ -77,6 +77,34 @@ fi
 archive_url="$base_url/$asset"
 checksum_url="$base_url/checksums.txt"
 
+probe_url() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsIL -o /dev/null "$1"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --spider -q "$1"
+  else
+    err "curl or wget is required"
+  fi
+}
+
+if [ "$VERSION" != "latest" ] && ! probe_url "$archive_url"; then
+  case "$VERSION" in
+    v*)
+      alt_version="${VERSION#v}"
+      alt_base="https://github.com/$REPO/releases/download/$alt_version"
+      ;;
+    *)
+      alt_version="v$VERSION"
+      alt_base="https://github.com/$REPO/releases/download/$alt_version"
+      ;;
+  esac
+  if probe_url "$alt_base/$asset"; then
+    printf 'Falling back to tag %s\n' "$alt_version" >&2
+    archive_url="$alt_base/$asset"
+    checksum_url="$alt_base/checksums.txt"
+  fi
+fi
+
 need tar
 tmp="$(mktemp -d 2>/dev/null || mktemp -d -t md-wiki)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
