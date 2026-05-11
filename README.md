@@ -78,7 +78,7 @@ cargo install --path .
 cargo run -- path/to/notes -r -o path/to/wiki
 ```
 
-crates.io の package 名は `md-wiki-cli`、インストール後の binary 名は `md-wiki` です。crates.io 公開後は `cargo install md-wiki-cli` でも導入できます。
+crates.io の package 名は `md-wiki-cli` ですが、binary name is still `md-wiki` です。crates.io 公開後は `cargo install md-wiki-cli` でも導入できます。
 
 ### 動作確認
 
