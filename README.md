@@ -31,6 +31,9 @@ GitHub Release の `md-wiki-<target>.tar.gz` と `checksums.txt` を取得し、
 | `MD_WIKI_VERSION` | `latest` | 任意のリリースタグを指定（例: `0.1.0`） |
 | `MD_WIKI_INSTALL_DIR` | `$HOME/.local/bin` | インストール先ディレクトリ |
 | `MD_WIKI_REPO` | `ts020/wiki-agent` | fork 等で別の repo から取得する場合 |
+| `MD_WIKI_SKIP_CHECKSUM` | (unset) | `1` を設定すると checksum 取得不能時もインストールを続行する（非推奨） |
+
+既定では `checksums.txt` の取得失敗・対象 entry 不在・`sha256sum`/`shasum` 不在のいずれかで install を中断します。
 
 例:
 

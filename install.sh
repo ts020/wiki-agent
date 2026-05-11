@@ -112,25 +112,51 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 printf 'Downloading %s\n' "$archive_url"
 download "$archive_url" "$tmp/$asset"
 
+skip_checksum_reason=""
+expected=""
+actual=""
 if download "$checksum_url" "$tmp/checksums.txt"; then
-  if grep "  $asset\$" "$tmp/checksums.txt" >"$tmp/checksum.selected"; then
-    if command -v sha256sum >/dev/null 2>&1; then
-      (cd "$tmp" && sha256sum -c checksum.selected)
-    elif command -v shasum >/dev/null 2>&1; then
-      (cd "$tmp" && shasum -a 256 -c checksum.selected)
-    else
-      printf 'Checksum file found, but sha256sum/shasum is unavailable; skipping verification.\n' >&2
-    fi
+  expected=$(awk -v f="$asset" '$2==f && length($1)==64 && $1 ~ /^[0-9a-fA-F]+$/ {print $1; exit}' "$tmp/checksums.txt")
+  if [ -z "$expected" ]; then
+    skip_checksum_reason="checksums.txt has no valid sha256 entry for $asset"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/$asset" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')
   else
-    printf 'Checksum file does not list %s; skipping verification.\n' "$asset" >&2
+    skip_checksum_reason="sha256sum and shasum are both unavailable"
   fi
 else
-  printf 'checksums.txt is unavailable; skipping verification.\n' >&2
+  skip_checksum_reason="checksums.txt could not be downloaded from $checksum_url"
 fi
 
-tar -xzf "$tmp/$asset" -C "$tmp"
-extracted_bin="$(find "$tmp" -type f -name "$bin" | head -n 1)"
+if [ -n "$expected" ] && [ -n "$actual" ]; then
+  if [ "$expected" != "$actual" ]; then
+    err "checksum mismatch for $asset
+  expected: $expected
+  actual:   $actual"
+  fi
+  printf 'Checksum verified: %s\n' "$asset"
+fi
+
+if [ -n "$skip_checksum_reason" ]; then
+  if [ "${MD_WIKI_SKIP_CHECKSUM:-}" = "1" ]; then
+    printf 'Skipping checksum verification: %s\n' "$skip_checksum_reason" >&2
+  else
+    err "checksum verification failed: $skip_checksum_reason
+Re-run with MD_WIKI_SKIP_CHECKSUM=1 only if you understand the risk."
+  fi
+fi
+
+extract_dir="$tmp/extract"
+mkdir -p "$extract_dir"
+tar -xzf "$tmp/$asset" -C "$extract_dir"
+extracted_bin="$(find "$extract_dir" -type f -name "$bin" | head -n 1)"
 [ -n "$extracted_bin" ] || err "archive did not contain $bin"
+case "$extracted_bin" in
+  "$extract_dir"/*) ;;
+  *) err "extracted binary path is outside the extraction directory: $extracted_bin" ;;
+esac
 
 mkdir -p "$INSTALL_DIR"
 cp "$extracted_bin" "$INSTALL_DIR/$bin"
