@@ -92,6 +92,9 @@ fn readme_has_public_user_onboarding() {
     let readme = include_str!("../README.md");
 
     for expected in [
+        "curl -fsSL https://raw.githubusercontent.com/ts020/wiki-agent/main/install.sh | sh",
+        "MD_WIKI_INSTALL_DIR",
+        "MD_WIKI_VERSION",
         "cargo install --path .",
         "cargo install md-wiki-cli",
         "binary name is still `md-wiki`",
@@ -104,6 +107,42 @@ fn readme_has_public_user_onboarding() {
     ] {
         assert!(readme.contains(expected), "README missing: {expected}");
     }
+}
+
+#[test]
+fn release_installer_is_documented_and_wired_to_release_assets() {
+    let install = include_str!("../install.sh");
+    let workflow = include_str!("../.github/workflows/release.yml");
+    let release_notes = include_str!("../docs/releases/v0.1.0.md");
+
+    for expected in [
+        "MD_WIKI_REPO",
+        "MD_WIKI_VERSION",
+        "MD_WIKI_INSTALL_DIR",
+        "releases/latest/download",
+        "checksums.txt",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+    ] {
+        assert!(install.contains(expected), "install.sh missing: {expected}");
+    }
+
+    for expected in [
+        "push:",
+        "tags:",
+        "md-wiki-${{ matrix.target }}.tar.gz",
+        "sha256sum md-wiki-*.tar.gz > checksums.txt",
+        "gh release create",
+    ] {
+        assert!(
+            workflow.contains(expected),
+            "release workflow missing: {expected}"
+        );
+    }
+
+    assert!(release_notes.contains("curl -fsSL"));
 }
 
 #[test]

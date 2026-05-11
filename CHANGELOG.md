@@ -16,4 +16,5 @@ Initial public release preparation.
 - Build entry pages, h2/h3 fragments, hierarchical `_index.md` pages, tags, headings, links, backlinks, and unresolved link reports.
 - Support Obsidian-style `[[wikilink]]`, aliases, related notes, `wiki: false`, and `fragment: false`.
 - Generate agentic search metadata, agent guide, page catalog, and term index.
+- Provide GitHub Release archives that can be installed with `curl | sh`.
 - Keep generation local, deterministic, non-destructive, and independent of AI or external APIs.

@@ -181,6 +181,8 @@
    - 対応範囲
    - 既知の制限
    - 検証結果
+   - OS / arch 別の `md-wiki-<target>.tar.gz` と `checksums.txt`
+   - `install.sh` で `curl | sh` インストールできること
 5. crates.io 公開を行う場合は以下を実行する。
    - crate 名の可用性確認
    - `md-wiki` は既存 crate と衝突するため、package 名は `md-wiki-cli`、binary 名は `md-wiki` とする
@@ -189,12 +191,14 @@
 6. 公開後の smoke test を行う。
    - fresh clone
    - `cargo install --path .`
+   - `curl -fsSL https://raw.githubusercontent.com/ts020/wiki-agent/main/install.sh | sh`
    - 最小 fixture で `md-wiki <INPUT> -o <OUT>`
    - 生成された `index.md`, `agent/index.md`, `fragments/_index.md` を確認する
 
 ### 完了条件
 
 - GitHub Release `v0.1.0` が作成されている
+- GitHub Release から `curl | sh` で `md-wiki` を導入できる
 - crates.io 公開する場合は `cargo install md-wiki-cli` で `md-wiki` binary を導入できる
 - 公開後 smoke test が成功する
 
