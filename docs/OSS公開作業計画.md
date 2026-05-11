@@ -241,6 +241,6 @@ crates.io 公開は、上記に加えて `CHANGELOG.md`、`cargo publish --dry-r
 - [x] `scripts/verify.sh` passes
 - [x] `cargo package --locked` passes
 - [x] CI passes on target OSes
-- [ ] quality score history is clean and current
+- [x] quality score history is clean and current
 - [x] `v0.1.0` release notes are drafted
 - [ ] post-release smoke test passes
