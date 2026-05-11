@@ -113,20 +113,30 @@ printf 'Downloading %s\n' "$archive_url"
 download "$archive_url" "$tmp/$asset"
 
 skip_checksum_reason=""
+expected=""
+actual=""
 if download "$checksum_url" "$tmp/checksums.txt"; then
-  if grep "  $asset\$" "$tmp/checksums.txt" >"$tmp/checksum.selected"; then
-    if command -v sha256sum >/dev/null 2>&1; then
-      (cd "$tmp" && sha256sum -c checksum.selected)
-    elif command -v shasum >/dev/null 2>&1; then
-      (cd "$tmp" && shasum -a 256 -c checksum.selected)
-    else
-      skip_checksum_reason="sha256sum and shasum are both unavailable"
-    fi
+  expected=$(awk -v f="$asset" '$2==f && length($1)==64 && $1 ~ /^[0-9a-fA-F]+$/ {print $1; exit}' "$tmp/checksums.txt")
+  if [ -z "$expected" ]; then
+    skip_checksum_reason="checksums.txt has no valid sha256 entry for $asset"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/$asset" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')
   else
-    skip_checksum_reason="checksums.txt does not list $asset"
+    skip_checksum_reason="sha256sum and shasum are both unavailable"
   fi
 else
   skip_checksum_reason="checksums.txt could not be downloaded from $checksum_url"
+fi
+
+if [ -n "$expected" ] && [ -n "$actual" ]; then
+  if [ "$expected" != "$actual" ]; then
+    err "checksum mismatch for $asset
+  expected: $expected
+  actual:   $actual"
+  fi
+  printf 'Checksum verified: %s\n' "$asset"
 fi
 
 if [ -n "$skip_checksum_reason" ]; then
