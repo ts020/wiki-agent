@@ -4,11 +4,23 @@
 
 # Rust
 /target
+Cargo.toml.orig
 
 # Output
 /md-wiki
 /repo-wiki
 
+# Editors / OS
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs / temp
+*.log
+*.bak
 
 # Added by cargo
 #
