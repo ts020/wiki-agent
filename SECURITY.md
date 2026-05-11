@@ -22,4 +22,3 @@ Useful information for a private report:
 - impact and expected behavior
 
 md-wiki is intended to run locally and does not use external APIs or network services during wiki generation. Security-sensitive areas are path handling, output directory cleanup protection, symlink handling, and parsing of untrusted Markdown files.
-

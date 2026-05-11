@@ -39,4 +39,3 @@ What happened instead?
 - [ ] The input is Markdown-only and does not require external services
 - [ ] The issue reproduces with a minimal fixture
 - [ ] No private data or security-sensitive details are included
-

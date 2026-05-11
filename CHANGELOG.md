@@ -17,4 +17,3 @@ Initial public release preparation.
 - Support Obsidian-style `[[wikilink]]`, aliases, related notes, `wiki: false`, and `fragment: false`.
 - Generate agentic search metadata, agent guide, page catalog, and term index.
 - Keep generation local, deterministic, non-destructive, and independent of AI or external APIs.
-

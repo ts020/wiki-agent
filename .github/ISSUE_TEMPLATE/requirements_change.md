@@ -23,4 +23,3 @@ How can this be tested automatically?
 ## Compatibility
 
 Does this change generated output paths, links, metadata, or CLI behavior?
-

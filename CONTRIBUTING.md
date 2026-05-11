@@ -42,4 +42,3 @@ cargo package --no-verify --list
 - [ ] `cargo clippy -- -D warnings` が成功する
 - [ ] `cargo test` が成功する
 - [ ] 公開物に `.context/`, `.agents/`, `.claude/` などのローカル作業ファイルが入らない
-
