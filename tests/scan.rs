@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use md_wiki::scan::{ScanConfig, scan, scan_single_file};
 use tempfile::TempDir;
@@ -68,7 +68,7 @@ fn keeps_large_text_files_for_downstream_classification() {
     assert!(paths.contains(&PathBuf::from("big.txt")));
     let big = files
         .iter()
-        .find(|file| file.relative_path == PathBuf::from("big.txt"))
+        .find(|file| file.relative_path == Path::new("big.txt"))
         .unwrap();
     assert!(big.size > 1024 * 1024);
 }

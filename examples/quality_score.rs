@@ -294,14 +294,15 @@ fn build_report(args: &Args, first: GeneratedSite, second: GeneratedSite) -> Res
         .unwrap_or(0);
     let deterministic = snapshot_dir(&first.output_dir)? == snapshot_dir(&second.output_dir)?;
 
-    let mut checks = Vec::new();
-    checks.push(required_files_check(&pages));
-    checks.push(local_links_check(broken_local_links));
-    checks.push(wikilink_rewrite_check(&pages, first.unresolved_count));
-    checks.push(navigation_check(&pages, &first.nodes));
-    checks.push(backlinks_related_check(&pages));
-    checks.push(context_efficiency_check(oversized_pages, max_page_chars));
-    checks.push(determinism_check(deterministic));
+    let checks = vec![
+        required_files_check(&pages),
+        local_links_check(broken_local_links),
+        wikilink_rewrite_check(&pages, first.unresolved_count),
+        navigation_check(&pages, &first.nodes),
+        backlinks_related_check(&pages),
+        context_efficiency_check(oversized_pages, max_page_chars),
+        determinism_check(deterministic),
+    ];
 
     let score: f64 = checks.iter().map(|c| c.points).sum();
     let max_score: f64 = checks.iter().map(|c| c.max_points).sum();
