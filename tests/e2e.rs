@@ -159,7 +159,11 @@ fn init_manifest_records_input_sources_and_generated_files() {
     assert_eq!(manifest["recursive"], true);
     assert_eq!(
         manifest["input_root"].as_str().unwrap(),
-        input.canonicalize().unwrap().to_string_lossy()
+        input
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
     );
     assert!(manifest["source_hashes"]["a.md"].as_str().is_some());
     assert!(
