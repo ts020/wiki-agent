@@ -20,12 +20,12 @@ If implementation details conflict, treat `docs/要件定義/` as authoritative.
 - Target Markdown files only. Do not add source-code analysis or symbol extraction.
 - Do not use AI, LLMs, external APIs, or network services for wiki generation.
 - Keep generation non-destructive: never modify input Markdown files.
-- v1 performs full regeneration. Do not add watch mode or incremental updates unless explicitly requested.
+- `init` performs initial generation; `add` recomputes whole-wiki consistency and applies only filesystem diffs based on `.md-wiki/manifest.json`.
 - Do not implement future-scope items unless the user explicitly asks for them.
 
 ## Architecture
 
-- CLI entrypoint parses input and options.
+- CLI entrypoint exposes `init` and `add` subcommands.
 - Scanner collects eligible Markdown files.
 - Note ingestion parses frontmatter, headings, wiki links, tags, aliases, related notes, and fragment settings.
 - Fragment logic splits notes into entry pages, h2 fragments, and h3 child fragments when required.
@@ -37,7 +37,8 @@ Default output directory: `./md-wiki`.
 
 ```sh
 cargo build
-cargo run -- <INPUT> [-r|--recursive] [-o|--out <DIR>]
+cargo run -- init <INPUT> [-r|--recursive] [-o|--out <DIR>]
+cargo run -- add [PATH] [-o|--out <DIR>]
 cargo test
 cargo clippy -- -D warnings
 cargo fmt --check
