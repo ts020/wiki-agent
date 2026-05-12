@@ -82,7 +82,8 @@ sha256sum -c sha256.sum --ignore-missing
 cargo install --path .
 
 # 開発中に直接実行
-cargo run -- path/to/notes -r -o path/to/wiki
+cargo run -- init path/to/notes -r -o path/to/wiki
+cargo run -- add -o path/to/wiki
 ```
 
 ### 動作確認
@@ -133,7 +134,7 @@ MD
 wiki を生成します。
 
 ```sh
-md-wiki notes --recursive --out md-wiki
+md-wiki init notes --recursive --out md-wiki
 ```
 
 主な出力を確認します。
@@ -145,12 +146,20 @@ sed -n '1,80p' md-wiki/fragments/start/index.md
 sed -n '1,80p' md-wiki/tags/project.md
 ```
 
-開発中は同じ操作を `cargo run -- notes -r -o md-wiki` でも実行できます。既定の出力先は `./md-wiki` です。
+ノートを追加・削除したあとは、同じ出力先に差分更新します。
+
+```sh
+md-wiki add --out md-wiki
+```
+
+開発中は同じ操作を `cargo run -- init notes -r -o md-wiki` と `cargo run -- add -o md-wiki` でも実行できます。既定の出力先は `./md-wiki` です。
 
 ## 生成されるもの
 
 ```
 md-wiki/
+├── .md-wiki/
+│   └── manifest.json    # init/add の管理状態
 ├── index.md             # 入口。サマリ + 索引への導線
 ├── agent/               # tool-use agent 向け guide / catalog / term index
 ├── fragments/           # ノート本体（入口ページ + h2/h3 断片ページ）
@@ -169,7 +178,8 @@ md-wiki/
 - すべての生成 `.md` は YAML frontmatter の `md_wiki` metadata を持つ
 - 1 MiB 超の UTF-8 `.md` は skip せず large path で 40,000 文字以内の leaf 群へ分割される
 - 各ページの末尾には必要に応じて `## Backlinks` が付く。`## Related` は入口ページのみに付く
-- `md-wiki/` を削除しても入力側の `.md` は一切変更されないため、何度でも再生成できる
+- `add` は manifest を使って必要な生成ファイルだけ追加・更新・削除する
+- `md-wiki/` を削除しても入力側の `.md` は一切変更されないため、`init` から何度でも再生成できる
 
 ## 取り込みルール
 
@@ -210,12 +220,14 @@ fragment: false
 - 未解決の `[[...]]` は本文に `(未解決)` を残し、`_unresolved.md` に集約
 - フロントマター `tags`、h1/h2、ノート間リンク、バックリンクを索引化
 
-本文中の `#tag`、HTML 出力、全文検索 index、watch mode、差分更新は v0.1.0 の対象外です。
+本文中の `#tag`、HTML 出力、全文検索 index、watch mode は v0.1.0 の対象外です。
 
 ## 安全性と制限
 
 - 入力側の `.md` は変更しない。生成は指定された出力先だけに行う
-- 出力先が既存ディレクトリの場合、本ツール由来と推定できない内容を壊さないよう保護する
+- `init` の出力先が既存ディレクトリの場合、本ツール由来と推定できない内容を壊さないよう保護する
+- `add` は `.md-wiki/manifest.json` が無い出力先では実行しない。未管理ファイルと生成予定パスが衝突する場合も上書きせずエラーにする
+- 同じ出力先に対する `init` / `add` の同時実行は排他ロックで拒否する
 - `.git`, `node_modules`, `dist`, `build`, `target` と、`.wiki` 以外の隠しディレクトリは走査しない
 - NULL バイトを含むファイル、UTF-8 として解釈できないファイル、読み取り不能ファイルは警告してスキップする
 - 外部 API、AI、embedding、ネットワーク接続は使わない

@@ -55,7 +55,7 @@ pub fn scan(config: &ScanConfig) -> Vec<ScannedFile> {
     let extra_excluded: Vec<PathBuf> = config
         .extra_excluded
         .iter()
-        .filter_map(|p| std::path::absolute(p).ok())
+        .filter_map(|p| normalized_abs(p).ok())
         .collect();
 
     let walker_builder = WalkDir::new(root).follow_links(false);
@@ -130,7 +130,7 @@ fn should_prune(entry: &DirEntry, extra_excluded: &[PathBuf]) -> bool {
         return false;
     }
     if entry.file_type().is_dir()
-        && let Ok(abs) = std::path::absolute(entry.path())
+        && let Ok(abs) = normalized_abs(entry.path())
         && extra_excluded.contains(&abs)
     {
         return true;
@@ -147,6 +147,10 @@ fn should_prune(entry: &DirEntry, extra_excluded: &[PathBuf]) -> bool {
         return true;
     }
     false
+}
+
+fn normalized_abs(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize().or_else(|_| std::path::absolute(path))
 }
 
 fn is_probably_text(path: &Path, rel: &Path) -> bool {

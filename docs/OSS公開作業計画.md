@@ -14,7 +14,7 @@
 
 ## 非ゴール
 
-- 差分更新、watch mode、HTML 出力、全文検索 index などの将来拡張を実装する
+- watch mode、HTML 出力、全文検索 index などの将来拡張を実装する
 - 既存の Markdown 生成仕様を変更する
 - OSS 公開と無関係な内部 refactor を行う
 - 外部 API、AI、embedding、ネットワーク依存を導入する
@@ -192,7 +192,7 @@
    - fresh clone
    - `cargo install --path .`
    - `curl -fsSL https://raw.githubusercontent.com/ts020/wiki-agent/main/install.sh | sh`
-   - 最小 fixture で `md-wiki <INPUT> -o <OUT>`
+   - 最小 fixture で `md-wiki init <INPUT> -o <OUT>`
    - 生成された `index.md`, `agent/index.md`, `fragments/_index.md` を確認する
 
 ### 完了条件

@@ -9,6 +9,7 @@ pub mod link;
 pub mod metadata_renderer;
 pub mod model;
 pub mod notes;
+pub mod output_plan;
 pub mod page_registry;
 pub mod regular_page_plan;
 pub mod relations;

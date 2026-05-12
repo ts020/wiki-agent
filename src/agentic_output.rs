@@ -11,6 +11,9 @@ use regex::Regex;
 use crate::large_markdown::{self, LineRange, PageKind, PagePlan};
 use crate::metadata_renderer::{Metadata, markdown_path, render_frontmatter};
 use crate::notes::headings;
+use crate::output_plan::{
+    OutputPlan, collect_markdown_plan_from_dir, insert_text, write_plan_files,
+};
 
 pub const PAGE_CHAR_LIMIT: usize = 40_000;
 const MAX_TERM_PAGE_LINKS: usize = 20;
@@ -29,43 +32,98 @@ struct CatalogRow {
 }
 
 pub fn finalize_agentic_output(root: &Path) -> Result<()> {
-    page_large_indexes(root)?;
-    ensure_metadata_for_existing_pages(root)?;
-    write_agent_guide(root)?;
-    write_term_index(root)?;
-    write_page_catalog(root)?;
+    let stale_candidates = existing_paged_index_files(root)?;
+    let mut plan = collect_markdown_plan_from_dir(root)?;
+    finalize_agentic_plan(&mut plan)?;
+    remove_stale_paged_index_files(root, &plan, stale_candidates)?;
+    write_plan_files(root, &plan)?;
     Ok(())
 }
 
-fn page_large_indexes(root: &Path) -> Result<()> {
-    page_index_if_needed(root, Path::new("headings/index.md"), "Headings")?;
-    page_index_if_needed(root, Path::new("links/index.md"), "Links")?;
+pub fn finalize_agentic_plan(plan: &mut OutputPlan) -> Result<()> {
+    page_large_indexes(plan)?;
+    ensure_metadata_for_existing_pages(plan)?;
+    write_agent_guide(plan)?;
+    write_term_index(plan)?;
+    write_page_catalog(plan)?;
     Ok(())
 }
 
-fn page_index_if_needed(root: &Path, rel: &Path, title: &str) -> Result<()> {
-    let abs = root.join(rel);
-    if !abs.exists() {
-        return Ok(());
+fn page_large_indexes(plan: &mut OutputPlan) -> Result<()> {
+    page_index_if_needed(plan, Path::new("headings/index.md"), "Headings")?;
+    page_index_if_needed(plan, Path::new("links/index.md"), "Links")?;
+    Ok(())
+}
+
+fn existing_paged_index_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    for dir in [Path::new("headings"), Path::new("links")] {
+        let abs = root.join(dir);
+        if !abs.exists() {
+            continue;
+        }
+        for entry in fs::read_dir(&abs)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(is_page_file)
+            {
+                out.push(path.strip_prefix(root)?.to_path_buf());
+            }
+        }
     }
-    let body = strip_frontmatter(&fs::read_to_string(&abs)?).to_string();
-    if body.chars().count() <= PAGE_CHAR_LIMIT {
-        return Ok(());
+    Ok(out)
+}
+
+fn remove_stale_paged_index_files(
+    root: &Path,
+    plan: &OutputPlan,
+    stale_candidates: Vec<PathBuf>,
+) -> Result<()> {
+    for rel in stale_candidates {
+        if plan.contains_key(&rel) {
+            continue;
+        }
+        let abs = root.join(&rel);
+        if abs.exists() {
+            fs::remove_file(&abs).with_context(|| format!("failed to remove {}", abs.display()))?;
+        }
     }
+    Ok(())
+}
+
+fn is_page_file(name: &str) -> bool {
+    name.starts_with("page-") && name.ends_with(".md")
+}
+
+fn page_index_if_needed(plan: &mut OutputPlan, rel: &Path, title: &str) -> Result<()> {
+    let Some(body) = plan
+        .get(rel)
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    else {
+        return Ok(());
+    };
+    let body = strip_frontmatter(&body).to_string();
     let Some(dir_rel) = rel.parent() else {
         return Ok(());
     };
-    let dir_abs = root.join(dir_rel);
-    for entry in fs::read_dir(&dir_abs)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .is_some_and(|name| name.starts_with("page-") && name.ends_with(".md"))
-        {
-            fs::remove_file(path)?;
-        }
+    let stale_pages: Vec<_> = plan
+        .keys()
+        .filter(|path| path.parent() == Some(dir_rel))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(is_page_file)
+        })
+        .cloned()
+        .collect();
+    for path in stale_pages {
+        plan.remove(&path);
+    }
+    if body.chars().count() <= PAGE_CHAR_LIMIT {
+        return Ok(());
     }
 
     let mut pages = Vec::new();
@@ -96,12 +154,12 @@ fn page_index_if_needed(root: &Path, rel: &Path, title: &str) -> Result<()> {
             summary.count, summary.first, summary.last
         );
     }
-    fs::write(&abs, manifest)?;
+    insert_text(plan, rel.to_path_buf(), manifest);
 
     for (idx, page) in pages.into_iter().enumerate() {
         let number = idx + 1;
         let body = format!("# {title} {number}\n\n{page}");
-        fs::write(dir_abs.join(format!("page-{number:03}.md")), body)?;
+        insert_text(plan, dir_rel.join(format!("page-{number:03}.md")), body);
     }
     Ok(())
 }
@@ -137,6 +195,16 @@ pub fn write_large_markdown_pages(
     input_root: &Path,
     large_files: &[PathBuf],
 ) -> Result<()> {
+    let mut plan = OutputPlan::new();
+    plan_large_markdown_pages(&mut plan, input_root, large_files)?;
+    write_plan_files(root, &plan)
+}
+
+pub fn plan_large_markdown_pages(
+    plan: &mut OutputPlan,
+    input_root: &Path,
+    large_files: &[PathBuf],
+) -> Result<()> {
     for rel in large_files {
         let abs = input_root.join(rel);
         let scan = large_markdown::scan_lines(&abs)?;
@@ -150,15 +218,15 @@ pub fn write_large_markdown_pages(
             .iter()
             .find(|plan| plan.page_kind == PageKind::Entry)
             .context("large Markdown entry plan missing")?;
-        write_large_entry(root, entry, &leaves)?;
+        write_large_entry(plan, entry, &leaves)?;
         for leaf in leaves {
-            write_large_leaf(root, &abs, leaf)?;
+            write_large_leaf(plan, &abs, leaf)?;
         }
     }
     Ok(())
 }
 
-fn write_large_entry(root: &Path, entry: &PagePlan, leaves: &[&PagePlan]) -> Result<()> {
+fn write_large_entry(plan: &mut OutputPlan, entry: &PagePlan, leaves: &[&PagePlan]) -> Result<()> {
     let title = entry
         .section_path
         .first()
@@ -173,10 +241,11 @@ fn write_large_entry(root: &Path, entry: &PagePlan, leaves: &[&PagePlan]) -> Res
         let _ = writeln!(body, "- [{}]({name})", leaf.page_id);
     }
     let body = with_plan_metadata(entry, title, body, Vec::new());
-    write_file(root, &entry.output_path, &body)
+    write_file(plan, &entry.output_path, &body);
+    Ok(())
 }
 
-fn write_large_leaf(root: &Path, source_path: &Path, plan: &PagePlan) -> Result<()> {
+fn write_large_leaf(output: &mut OutputPlan, source_path: &Path, plan: &PagePlan) -> Result<()> {
     let mut content = String::new();
     let mut file = fs::File::open(source_path)?;
     for range in &plan.byte_ranges {
@@ -200,7 +269,8 @@ fn write_large_leaf(root: &Path, source_path: &Path, plan: &PagePlan) -> Result<
         .cloned()
         .unwrap_or_else(|| plan.page_id.clone());
     let body = with_plan_metadata(plan, title, body, Vec::new());
-    write_file(root, &plan.output_path, &body)
+    write_file(output, &plan.output_path, &body);
+    Ok(())
 }
 
 fn with_plan_metadata(
@@ -255,27 +325,26 @@ fn page_kind_name(kind: PageKind) -> &'static str {
     }
 }
 
-fn ensure_metadata_for_existing_pages(root: &Path) -> Result<()> {
-    for rel in markdown_files(root)? {
+fn ensure_metadata_for_existing_pages(plan: &mut OutputPlan) -> Result<()> {
+    for rel in markdown_files(plan) {
         if rel.starts_with("agent") {
             continue;
         }
-        let abs = root.join(&rel);
-        let body = fs::read_to_string(&abs)?;
+        let body = String::from_utf8_lossy(&plan[&rel]).into_owned();
         if body.starts_with("---\nmd_wiki:\n") {
             continue;
         }
-        let meta = infer_metadata(root, &rel, &body);
-        fs::write(&abs, format!("{}{}", render_frontmatter(&meta), body))?;
+        let meta = infer_metadata(plan, &rel, &body);
+        insert_text(plan, rel, format!("{}{}", render_frontmatter(&meta), body));
     }
     Ok(())
 }
 
-fn infer_metadata(root: &Path, rel: &Path, body: &str) -> Metadata {
+fn infer_metadata(plan: &OutputPlan, rel: &Path, body: &str) -> Metadata {
     let title = first_heading(body).unwrap_or_else(|| markdown_path(rel));
     let page_kind = infer_page_kind(rel);
     let (parent, prev, next) = nav_targets(body);
-    let children = child_links(root, rel, body);
+    let children = child_links(plan, rel, body);
     let source = source_for(rel);
     let tags = tags_for(rel);
     let outgoing_links = if page_kind == "paged_index" {
@@ -286,7 +355,7 @@ fn infer_metadata(root: &Path, rel: &Path, body: &str) -> Metadata {
             .map(|target| {
                 normalize_relative(rel.parent().unwrap_or(Path::new("")), Path::new(&target))
             })
-            .filter(|target| root.join(target).exists())
+            .filter(|target| plan.contains_key(target))
             .collect()
     };
     Metadata {
@@ -425,18 +494,18 @@ fn nav_targets(body: &str) -> (Option<PathBuf>, Option<PathBuf>, Option<PathBuf>
     (parent, prev, next)
 }
 
-fn child_links(root: &Path, rel: &Path, body: &str) -> Vec<PathBuf> {
+fn child_links(plan: &OutputPlan, rel: &Path, body: &str) -> Vec<PathBuf> {
     if !body.contains("## Fragments") {
         return Vec::new();
     }
     markdown_link_targets(body)
         .into_iter()
         .map(|target| normalize_relative(rel.parent().unwrap_or(Path::new("")), Path::new(&target)))
-        .filter(|target| root.join(target).exists())
+        .filter(|target| plan.contains_key(target))
         .collect()
 }
 
-fn write_agent_guide(root: &Path) -> Result<()> {
+fn write_agent_guide(plan: &mut OutputPlan) -> Result<()> {
     let children = vec![
         PathBuf::from("../fragments/_index.md"),
         PathBuf::from("../headings/index.md"),
@@ -496,16 +565,17 @@ fn write_agent_guide(root: &Path) -> Result<()> {
         backlinks_count: 0,
     };
     write_file(
-        root,
+        plan,
         Path::new("agent/index.md"),
         &format!("{}{}", render_frontmatter(&meta), body),
-    )
+    );
+    Ok(())
 }
 
-fn write_page_catalog(root: &Path) -> Result<()> {
-    let mut rows = catalog_rows(root)?;
+fn write_page_catalog(plan: &mut OutputPlan) -> Result<()> {
+    let mut rows = catalog_rows(plan)?;
     rows.retain(|row| !row.path.starts_with("agent/pages"));
-    let by_source_rows = write_by_source_catalog(root, &rows)?;
+    let by_source_rows = write_by_source_catalog(plan, &rows)?;
     rows.push(CatalogRow {
         path: PathBuf::from("agent/pages/index.md"),
         kind: "page_catalog".into(),
@@ -570,10 +640,10 @@ fn write_page_catalog(root: &Path) -> Result<()> {
         backlinks_count: 0,
     };
     write_file(
-        root,
+        plan,
         Path::new("agent/pages/index.md"),
         &format!("{}{}", render_frontmatter(&index_meta), index_body),
-    )?;
+    );
     if children.is_empty() {
         return Ok(());
     }
@@ -602,15 +672,15 @@ fn write_page_catalog(root: &Path) -> Result<()> {
             backlinks_count: 0,
         };
         write_file(
-            root,
+            plan,
             &PathBuf::from("agent/pages").join(name),
             &format!("{}{}", render_frontmatter(&meta), body),
-        )?;
+        );
     }
     Ok(())
 }
 
-fn write_by_source_catalog(root: &Path, rows: &[CatalogRow]) -> Result<Vec<CatalogRow>> {
+fn write_by_source_catalog(plan: &mut OutputPlan, rows: &[CatalogRow]) -> Result<Vec<CatalogRow>> {
     let mut by_source: BTreeMap<String, Vec<CatalogRow>> = BTreeMap::new();
     for row in rows {
         if !row.source.is_empty() {
@@ -661,10 +731,10 @@ fn write_by_source_catalog(root: &Path, rows: &[CatalogRow]) -> Result<Vec<Catal
             backlinks_count: 0,
         };
         write_file(
-            root,
+            plan,
             &rel,
             &format!("{}{}", render_frontmatter(&meta), body),
-        )?;
+        );
         generated_rows.push(CatalogRow {
             path: rel.clone(),
             kind: "page_catalog".into(),
@@ -712,10 +782,10 @@ fn write_by_source_catalog(root: &Path, rows: &[CatalogRow]) -> Result<Vec<Catal
         backlinks_count: 0,
     };
     write_file(
-        root,
+        plan,
         &index_rel,
         &format!("{}{}", render_frontmatter(&meta), index_body),
-    )?;
+    );
     generated_rows.push(CatalogRow {
         path: index_rel,
         kind: "page_catalog".into(),
@@ -763,10 +833,10 @@ fn source_page_stem(source: &str) -> String {
     }
 }
 
-fn catalog_rows(root: &Path) -> Result<Vec<CatalogRow>> {
+fn catalog_rows(plan: &OutputPlan) -> Result<Vec<CatalogRow>> {
     let mut rows = Vec::new();
-    for rel in markdown_files(root)? {
-        let body = fs::read_to_string(root.join(&rel))?;
+    for rel in markdown_files(plan) {
+        let body = String::from_utf8_lossy(&plan[&rel]).into_owned();
         rows.push(CatalogRow {
             kind: metadata_value(&body, "page_kind").unwrap_or_else(|| infer_page_kind(&rel)),
             title: metadata_value(&body, "title")
@@ -833,9 +903,9 @@ fn catalog_row(row: &CatalogRow) -> String {
     )
 }
 
-fn write_term_index(root: &Path) -> Result<()> {
+fn write_term_index(plan: &mut OutputPlan) -> Result<()> {
     let mut terms: BTreeMap<(String, String), BTreeSet<PathBuf>> = BTreeMap::new();
-    for rel in markdown_files(root)? {
+    for rel in markdown_files(plan) {
         if rel.starts_with("agent/terms") {
             continue;
         }
@@ -846,7 +916,7 @@ fn write_term_index(root: &Path) -> Result<()> {
         if suppress_generated_term_source(&rel) {
             continue;
         }
-        let body = fs::read_to_string(root.join(&rel))?;
+        let body = String::from_utf8_lossy(&plan[&rel]).into_owned();
         for heading in headings::extract(strip_frontmatter(&body)) {
             add_term(&mut terms, heading.text, "heading", &rel);
         }
@@ -900,10 +970,10 @@ fn write_term_index(root: &Path) -> Result<()> {
         backlinks_count: 0,
     };
     write_file(
-        root,
+        plan,
         Path::new("agent/terms/index.md"),
         &format!("{}{}", render_frontmatter(&meta), body),
-    )?;
+    );
     for (idx, page_rows) in pages.iter().enumerate() {
         if children.is_empty() {
             break;
@@ -932,10 +1002,10 @@ fn write_term_index(root: &Path) -> Result<()> {
             backlinks_count: 0,
         };
         write_file(
-            root,
+            plan,
             &PathBuf::from("agent/terms").join(name),
             &format!("{}{}", render_frontmatter(&meta), body),
-        )?;
+        );
     }
     Ok(())
 }
@@ -1063,25 +1133,14 @@ fn metadata_value(body: &str, key: &str) -> Option<String> {
         .map(|value| value.trim_matches('"').to_string())
 }
 
-fn markdown_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut out = Vec::new();
-    if !root.exists() {
-        return Ok(out);
-    }
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if entry.file_type()?.is_dir() {
-                stack.push(path);
-            } else if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                out.push(path.strip_prefix(root)?.to_path_buf());
-            }
-        }
-    }
+fn markdown_files(plan: &OutputPlan) -> Vec<PathBuf> {
+    let mut out: Vec<_> = plan
+        .keys()
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("md"))
+        .cloned()
+        .collect();
     out.sort();
-    Ok(out)
+    out
 }
 
 fn markdown_link_targets(body: &str) -> Vec<String> {
@@ -1115,14 +1174,8 @@ fn normalize_relative(base: &Path, rel: &Path) -> PathBuf {
     out
 }
 
-fn write_file(root: &Path, rel: &Path, body: &str) -> Result<()> {
-    let abs = root.join(rel);
-    if let Some(parent) = abs.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(&abs, body).with_context(|| format!("failed to write {}", abs.display()))?;
-    Ok(())
+fn write_file(plan: &mut OutputPlan, rel: &Path, body: &str) {
+    insert_text(plan, rel.to_path_buf(), body);
 }
 
 fn escape_table(value: &str) -> String {
@@ -1185,6 +1238,20 @@ mod tests {
         assert!(manifest.contains("- [Page 1](page-001.md) — "));
         assert!(manifest.contains(" headings, `Note 0` ... `"));
         assert!(manifest.contains("Heading 1399"));
+    }
+
+    #[test]
+    fn finalize_removes_stale_paged_index_files_when_index_shrinks() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("headings")).unwrap();
+        fs::write(root.join("headings/index.md"), "# Headings\n").unwrap();
+        fs::write(root.join("headings/page-001.md"), "# Stale\n").unwrap();
+
+        finalize_agentic_output(root).unwrap();
+
+        assert!(root.join("headings/index.md").exists());
+        assert!(!root.join("headings/page-001.md").exists());
     }
 
     #[test]
