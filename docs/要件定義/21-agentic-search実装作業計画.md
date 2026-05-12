@@ -339,7 +339,7 @@ cargo test e2e::regular_and_large_inputs_share_one_wiki
 手動検査コマンド:
 
 ```sh
-cargo run --quiet -- init target/agentic-search-gate/fixture -r -o target/agentic-search-cli-out
+cargo run --quiet -- init target/agentic-search-gate/fixture -o target/agentic-search-cli-out
 ```
 
 生成物条件:
@@ -486,7 +486,7 @@ Report 条件:
 
 ```sh
 cargo test docs
-cargo run --quiet -- init docs/要件定義 -r -o target/docs-wiki-smoke
+cargo run --quiet -- init docs/要件定義 -o target/docs-wiki-smoke
 ```
 
 生成物条件:

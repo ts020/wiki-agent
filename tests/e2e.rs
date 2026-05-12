@@ -32,6 +32,21 @@ fn run_fail(args: &[&std::ffi::OsStr]) -> std::process::Output {
     output
 }
 
+fn run_in(cwd: &Path, args: &[&std::ffi::OsStr]) -> std::process::Output {
+    let output = Command::new(bin_path())
+        .current_dir(cwd)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "md-wiki failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    output
+}
+
 fn snapshot_dir(path: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
     let mut out = std::collections::BTreeMap::new();
     if !path.exists() {
@@ -104,6 +119,7 @@ fn cli_help_runs() {
     );
     assert!(stdout.contains("init"));
     assert!(stdout.contains("add"));
+    assert!(!stdout.contains("--recursive"));
 }
 
 #[test]
@@ -113,6 +129,77 @@ fn old_positional_cli_is_rejected() {
     fs::write(&note, "# Memo").unwrap();
 
     run_fail(&[note.as_os_str()]);
+}
+
+#[test]
+fn old_recursive_flag_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(input.join("a.md"), "# A").unwrap();
+
+    let out = tmp.path().join("wiki");
+    run_fail(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--recursive".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+}
+
+#[test]
+fn init_defaults_to_current_directory_and_recursive_scan() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(input.join("deep")).unwrap();
+    fs::write(input.join("top.md"), "# Top").unwrap();
+    fs::write(input.join("deep/nested.md"), "# Nested").unwrap();
+
+    let out = tmp.path().join("wiki");
+    run_in(
+        &input,
+        &["init".as_ref(), "--out".as_ref(), out.as_os_str()],
+    );
+
+    assert!(out.join("fragments/top/index.md").exists());
+    assert!(out.join("fragments/deep/nested/index.md").exists());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join(".md-wiki/manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["input_kind"], "directory");
+    assert_eq!(manifest["recursive"], true);
+    assert_eq!(
+        manifest["input_root"].as_str().unwrap(),
+        input
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+}
+
+#[test]
+fn init_no_recursive_limits_directory_scan_to_root() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(input.join("deep")).unwrap();
+    fs::write(input.join("top.md"), "# Top").unwrap();
+    fs::write(input.join("deep/nested.md"), "# Nested").unwrap();
+
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--no-recursive".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+
+    assert!(out.join("fragments/top/index.md").exists());
+    assert!(!out.join("fragments/deep/nested/index.md").exists());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join(".md-wiki/manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["recursive"], false);
 }
 
 #[test]
@@ -147,7 +234,6 @@ fn init_manifest_records_input_sources_and_generated_files() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -193,7 +279,6 @@ fn init_directory_recursive_includes_nested_and_excludes_node_modules() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -234,7 +319,6 @@ fn refuses_to_clean_non_md_wiki_directory() {
         .args([
             "init".as_ref(),
             input.as_os_str(),
-            "--recursive".as_ref(),
             "--out".as_ref(),
             out.as_os_str(),
         ])
@@ -260,7 +344,6 @@ fn wiki_false_frontmatter_excludes_note() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -284,7 +367,6 @@ fn add_updates_indexes_and_matches_fresh_init() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -302,7 +384,6 @@ fn add_updates_indexes_and_matches_fresh_init() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         fresh.as_os_str(),
     ]);
@@ -321,7 +402,6 @@ fn add_removes_pages_for_deleted_sources() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -371,7 +451,6 @@ fn add_handles_large_markdown_add_delete_and_matches_fresh_init() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -388,7 +467,6 @@ fn add_handles_large_markdown_add_delete_and_matches_fresh_init() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         fresh.as_os_str(),
     ]);
@@ -402,7 +480,6 @@ fn add_handles_large_markdown_add_delete_and_matches_fresh_init() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         fresh_after_delete.as_os_str(),
     ]);
@@ -420,7 +497,6 @@ fn add_handles_fragment_file_to_shell_directory_shape_change() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -438,7 +514,6 @@ fn add_handles_fragment_file_to_shell_directory_shape_change() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         fresh.as_os_str(),
     ]);
@@ -459,7 +534,6 @@ fn add_excludes_output_when_input_root_is_symlinked() {
     run(&[
         "init".as_ref(),
         link.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -479,7 +553,6 @@ fn add_excludes_output_when_input_root_is_symlinked() {
     run(&[
         "init".as_ref(),
         real.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -497,7 +570,6 @@ fn add_does_not_rewrite_unchanged_generated_pages() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -526,7 +598,6 @@ fn add_requires_manifest_and_rejects_invalid_paths_or_unmanaged_collisions() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -559,7 +630,6 @@ fn add_rejects_unmanaged_parent_file_before_mutating_output() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -592,7 +662,6 @@ fn add_rejects_manifest_generated_paths_outside_output() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -635,7 +704,6 @@ fn add_rejects_symlink_at_managed_output_path() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -666,7 +734,6 @@ fn add_rejects_corrupt_manifest() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -689,7 +756,6 @@ fn init_and_add_reject_when_output_lock_exists() {
     let output = run_fail(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);
@@ -702,7 +768,6 @@ fn init_and_add_reject_when_output_lock_exists() {
     run(&[
         "init".as_ref(),
         input.as_os_str(),
-        "--recursive".as_ref(),
         "--out".as_ref(),
         out.as_os_str(),
     ]);

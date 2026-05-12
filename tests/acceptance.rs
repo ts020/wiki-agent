@@ -85,7 +85,7 @@ fn generates_index_and_entries_and_excludes() {
     assert!(!output.join("fragments/node_modules").exists());
 }
 
-/// AC-03: 非再帰ではサブディレクトリは走査されない
+/// AC-04: 非再帰ではサブディレクトリは走査されない
 #[test]
 fn non_recursive_skips_subdirectories() {
     let tmp = TempDir::new().unwrap();
@@ -101,7 +101,7 @@ fn non_recursive_skips_subdirectories() {
     assert!(!output.join("fragments/deep/nested/index.md").exists());
 }
 
-/// AC-04: `--recursive` 時はサブディレクトリの md も取り込まれ相対パスがディレクトリとして維持される
+/// AC-03: 既定の再帰走査ではサブディレクトリの md も取り込まれ相対パスがディレクトリとして維持される
 #[test]
 fn recursive_preserves_nested_paths() {
     let tmp = TempDir::new().unwrap();

@@ -37,7 +37,7 @@ Default output directory: `./md-wiki`.
 
 ```sh
 cargo build
-cargo run -- init <INPUT> [-r|--recursive] [-o|--out <DIR>]
+cargo run -- init [INPUT] [--no-recursive] [-o|--out <DIR>]
 cargo run -- add [PATH] [-o|--out <DIR>]
 cargo test
 cargo clippy -- -D warnings

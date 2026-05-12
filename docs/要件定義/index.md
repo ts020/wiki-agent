@@ -28,6 +28,7 @@
 
 ## 改訂履歴
 
+- vNext-default-recursive (2026-05-12): `init` の入力省略時はカレントディレクトリ、ディレクトリ入力は既定で再帰走査する仕様へ変更し、直下限定用に `--no-recursive` を追加。旧 `--recursive` / `-r` は廃止
 - vNext-agentic-search-plan (2026-04-28): ツール使用型エージェント向け探索仕様を、機械的に検査可能な完了条件付き作業タスクへ分解
 - vNext-agentic-search-design (2026-04-28): Qwen3 等の 128k コンテキスト・ツール使用型エージェントが生成 wiki を探索するための出力契約、metadata、CLI 統合、検証 gate 設計を追加
 - vNext-large-md-byte-window (2026-04-28): 改行を含まない 3 MiB 級単一段落を byte window で検証・分割する条件を追加
