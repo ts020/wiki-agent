@@ -82,7 +82,7 @@ sha256sum -c sha256.sum --ignore-missing
 cargo install --path .
 
 # 開発中に直接実行
-cargo run -- init path/to/notes -r -o path/to/wiki
+cargo run -- init path/to/notes -o path/to/wiki
 cargo run -- add -o path/to/wiki
 ```
 
@@ -134,7 +134,7 @@ MD
 wiki を生成します。
 
 ```sh
-md-wiki init notes --recursive --out md-wiki
+md-wiki init notes --out md-wiki
 ```
 
 主な出力を確認します。
@@ -152,7 +152,7 @@ sed -n '1,80p' md-wiki/tags/project.md
 md-wiki add --out md-wiki
 ```
 
-開発中は同じ操作を `cargo run -- init notes -r -o md-wiki` と `cargo run -- add -o md-wiki` でも実行できます。既定の出力先は `./md-wiki` です。
+開発中は同じ操作を `cargo run -- init notes -o md-wiki` と `cargo run -- add -o md-wiki` でも実行できます。既定の入力はカレントディレクトリ、既定の出力先は `./md-wiki` です。ディレクトリ入力は既定で再帰走査します。
 
 ## 生成されるもの
 

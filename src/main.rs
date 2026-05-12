@@ -39,12 +39,13 @@ enum Command {
 
 #[derive(Args, Debug)]
 struct InitArgs {
-    /// 入力（`.md` ファイル、またはディレクトリ）
+    /// 入力（`.md` ファイル、またはディレクトリ）。省略時はカレントディレクトリ
+    #[arg(default_value = ".")]
     input: PathBuf,
 
-    /// ディレクトリ入力時に再帰的に走査する
-    #[arg(short, long)]
-    recursive: bool,
+    /// ディレクトリ入力時に直下だけを走査する
+    #[arg(long)]
+    no_recursive: bool,
 
     /// 出力先ディレクトリ
     #[arg(short, long, default_value = "./md-wiki")]
@@ -91,7 +92,7 @@ fn main() -> anyhow::Result<()> {
 
 fn run_init(args: InitArgs) -> anyhow::Result<()> {
     let _lock = OutputLock::acquire(&args.out)?;
-    let prepared = prepare_generation(&args.input, args.recursive, &args.out)?;
+    let prepared = prepare_generation(&args.input, !args.no_recursive, &args.out)?;
     let desired = build_desired_output(&prepared)?;
     let manifest = Manifest::new(
         prepared.input_kind,
