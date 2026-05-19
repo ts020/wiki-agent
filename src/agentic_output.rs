@@ -515,6 +515,10 @@ fn write_agent_guide(plan: &mut OutputPlan) -> Result<()> {
         PathBuf::from("pages/index.md"),
         PathBuf::from("terms/index.md"),
     ];
+    let mut children = children;
+    if plan.contains_key(Path::new("agent/fields/index.md")) {
+        children.push(PathBuf::from("fields/index.md"));
+    }
     let mut body = String::new();
     body.push_str("# Agent Guide\n\n");
     body.push_str("- Page budget: 40,000 characters hard limit per Markdown file\n");
@@ -532,6 +536,7 @@ fn write_agent_guide(plan: &mut OutputPlan) -> Result<()> {
     body.push_str("| specification | `headings/`, text search | Prev / Next leaf pages |\n");
     body.push_str("| relationship | `links/`, Backlinks | related leaf pages |\n");
     body.push_str("| tag | `tags/` | `agent/terms/` |\n");
+    body.push_str("| schema field | `agent/fields/` | page catalog |\n");
     body.push_str("| unresolved | `_unresolved.md` | page catalog |\n");
     body.push_str("| huge range | `agent/pages/` source and line range | Prev / Next |\n");
     body.push_str("| ambiguous | `agent/terms/` and text search | catalog comparison |\n");

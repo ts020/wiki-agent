@@ -15,3 +15,4 @@ pub mod regular_page_plan;
 pub mod relations;
 pub mod render;
 pub mod scan;
+pub mod schema;
