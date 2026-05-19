@@ -338,7 +338,7 @@ v1 の非目標:
 
 現在の `docs/要件定義/18-巨大Markdown対応完了条件.md`、`19-巨大Markdown対応設計と機械検証.md`、`20-ツール使用型エージェント向け探索仕様と設計.md`、`21-agentic-search実装作業計画.md` は、この設計の implementation track として整理し直す。
 
-既存仕様で優先的に解消する矛盾:
+以下は設計作成時点で優先的に解消すべきだった矛盾である。要件定義への移行後は、root `index.md` と AC-12 / AC-22 の矛盾は解消済み、40,000 文字制限と `fragment: false` の hard limit 化は巨大 Markdown / agentic search implementation track、agentic / large Markdown 要件の実装検証は計画済み coverage として扱う。
 
 - `index.md` に入口ページ一覧を出すのか、`fragments/_index.md` へ委譲するのか。
 - 40,000 文字超を warn で継続するのか、agentic retrieval では hard limit とするのか。
@@ -346,4 +346,4 @@ v1 の非目標:
 - AC-12 と AC-22 の root index 仕様の矛盾。
 - agentic / large Markdown 要件が v1 acceptance criteria に統合されていない問題。
 
-移行時は、先にこの設計を上位方針として合意し、その後に `docs/要件定義/` を再編する。
+移行時は、先にこの設計を上位方針として合意し、その後に `docs/要件定義/` を再編する。再編後の正は `docs/要件定義/` であり、本設計 doc は移行判断の根拠として保持する。
