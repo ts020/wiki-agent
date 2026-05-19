@@ -1,5 +1,7 @@
 # 19. 巨大 Markdown 対応 設計と機械検証
 
+> Status: 本章は retrieval compiler 方針の implementation track である。`docs/要件定義/01-概要.md`〜`17-継続検証と品質スコア.md` の中核仕様を正とし、本章は巨大 Markdown / agentic search 実装を進める際に再整理する。
+
 本章は [18. 巨大 Markdown 対応 完了条件](18-巨大Markdown対応完了条件.md) を実装設計と機械検証方法へ落とすための仕様である。
 
 18 章は「何を満たせば完了か」を定義する。本章は「どの構造で実装し、どのコマンドとレポートで完了を判定するか」を定義する。
