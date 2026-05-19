@@ -25,7 +25,7 @@ Latest verified commands for the code changes:
   - includes `cargo fmt --check`
   - includes `cargo clippy -- -D warnings`
   - includes `cargo test`
-  - includes `cargo metadata --locked --offline`
+  - includes `cargo metadata --locked --offline --filter-platform <host>`
   - includes `quality_score`, `large_md_gate`, and `agentic_search_gate`
 
 Package check status:
@@ -103,7 +103,7 @@ Legend:
 
 - [x] AC-31 no inference / no network
   - Implemented by architecture: no LLM, embedding, external API, network, or schema code execution.
-  - Current iteration: `scripts/verify.sh` now includes `cargo metadata --locked --offline --format-version 1` as a dependency/offline gate.
+  - Current iteration: `scripts/verify.sh` now includes `cargo metadata --locked --offline --filter-platform <host> --format-version 1` as a dependency/offline gate.
 
 ## Next Tasks
 
