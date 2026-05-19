@@ -1,6 +1,6 @@
-# md-wiki 要件定義書 v1.2
+# md-wiki Retrieval Compiler 要件定義書
 
-本書は `md-wiki` の要件定義である。セクション単位で独立ファイルに分割して管理する。実装判断は本書を正とする。
+本書は `md-wiki` の要件定義である。`md-wiki` は、ローカル Markdown corpus を小さいコンテキストの agent が探索・引用・再利用できる形へ変換する、オフラインの retrieval compiler である。実装判断は本書を正とする。
 
 ## 目次
 
@@ -28,6 +28,7 @@
 
 ## 改訂履歴
 
+- vNext-retrieval-compiler (2026-05-19): `md-wiki` の主目的を人間向け wiki 生成から、小さいコンテキストの agent 向け retrieval compiler へ再定義。静的 compile artifacts と `context` retrieval CLI、外部 YAML schema pack、Markdown context pack、内部 catalog を中核仕様として追加
 - vNext-default-recursive (2026-05-12): `init` の入力省略時はカレントディレクトリ、ディレクトリ入力は既定で再帰走査する仕様へ変更し、直下限定用に `--no-recursive` を追加。旧 `--recursive` / `-r` は廃止
 - vNext-agentic-search-plan (2026-04-28): ツール使用型エージェント向け探索仕様を、機械的に検査可能な完了条件付き作業タスクへ分解
 - vNext-agentic-search-design (2026-04-28): Qwen3 等の 128k コンテキスト・ツール使用型エージェントが生成 wiki を探索するための出力契約、metadata、CLI 統合、検証 gate 設計を追加
