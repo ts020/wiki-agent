@@ -238,6 +238,51 @@ contexts:
 }
 
 #[test]
+fn schema_validation_rejects_malformed_yaml_and_missing_required_top_level_fields() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(input.join("a.md"), "# A").unwrap();
+    let out = tmp.path().join("wiki");
+
+    let malformed = tmp.path().join("malformed.yml");
+    fs::write(&malformed, "id: bad\nfields:\n  canon: [").unwrap();
+    let output = run_fail(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        malformed.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed to parse"), "{stderr}");
+
+    let missing = tmp.path().join("missing.yml");
+    fs::write(
+        &missing,
+        r#"id: missing
+version: 1
+fields:
+  canon:
+    sources:
+      - heading: Canon
+"#,
+    )
+    .unwrap();
+    let output = run_fail(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        missing.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("schema contexts are required"), "{stderr}");
+}
+
+#[test]
 fn context_outputs_markdown_pack_with_missing_evidence_budget_and_determinism() {
     let tmp = TempDir::new().unwrap();
     let input = tmp.path().join("src");
@@ -401,6 +446,64 @@ fn context_without_entity_does_not_select_unrelated_pages() {
 }
 
 #[test]
+fn time_filter_matches_explicit_schema_field_metadata() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(
+        input.join("a.md"),
+        "---\ntimeline: after:chapter-3\n---\n# A\n",
+    )
+    .unwrap();
+    fs::write(
+        input.join("b.md"),
+        "---\ntimeline: before:chapter-1\n---\n# B\n",
+    )
+    .unwrap();
+    let schema = tmp.path().join("schema.yml");
+    fs::write(
+        &schema,
+        r#"id: time-test
+version: 1
+fields:
+  timeline:
+    sources:
+      - frontmatter: timeline
+contexts:
+  route:
+    sections:
+      - title: Source Trail
+        kind: sources
+"#,
+    )
+    .unwrap();
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+
+    let output = run(&[
+        "context".as_ref(),
+        "--wiki".as_ref(),
+        out.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--task".as_ref(),
+        "route".as_ref(),
+        "--time".as_ref(),
+        "after:chapter-3".as_ref(),
+    ]);
+    let pack = String::from_utf8(output.stdout).unwrap();
+    assert!(pack.contains("fragments/a/index.md"), "{pack}");
+    assert!(!pack.contains("fragments/b/index.md"), "{pack}");
+}
+
+#[test]
 fn required_evidence_is_scoped_to_requested_entity_candidates() {
     let tmp = TempDir::new().unwrap();
     let input = tmp.path().join("src");
@@ -544,15 +647,24 @@ contexts:
 
     let catalog: serde_json::Value =
         serde_json::from_slice(&fs::read(out.join(".md-wiki/catalog.json")).unwrap()).unwrap();
-    let page = catalog["pages"]
+    let entry = catalog["pages"]
         .as_array()
         .unwrap()
         .iter()
         .find(|page| page["generated_path"] == "fragments/a/index.md")
         .unwrap();
-    let items = page["fields"]["canon"].as_array().unwrap();
-    assert_eq!(items[0]["text"], "Frontmatter canon.");
-    assert_eq!(items[1]["text"], "Heading canon.");
+    let leaf = catalog["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|page| page["generated_path"] == "fragments/a/canon.md")
+        .unwrap();
+    assert_eq!(entry["fields"]["canon"][0]["text"], "Frontmatter canon.");
+    assert_eq!(leaf["fields"]["canon"][0]["text"], "Heading canon.");
+    assert!(
+        entry["fields"]["canon"][0]["line_start"].as_u64().unwrap()
+            < leaf["fields"]["canon"][0]["line_start"].as_u64().unwrap()
+    );
 }
 
 #[test]
@@ -593,6 +705,98 @@ fn budget_pruning_preserves_missing_required_evidence() {
     assert!(pack.len() <= 320, "{pack}");
     assert!(pack.contains("## Missing Required Evidence"), "{pack}");
     assert!(pack.contains("canon"), "{pack}");
+    assert!(pack.contains("## Source Trail"), "{pack}");
+}
+
+#[test]
+fn budget_pruning_keeps_required_sections_before_optional_sections() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    let long_setup = "optional setup evidence ".repeat(80);
+    fs::write(
+        input.join("a.md"),
+        format!("---\ncanon: Required canon.\nnarrative:\n  setup: {long_setup:?}\n---\n# A\n"),
+    )
+    .unwrap();
+    let schema = tmp.path().join("schema.yml");
+    write_schema(&schema);
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+
+    let output = run(&[
+        "context".as_ref(),
+        "--wiki".as_ref(),
+        out.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--task".as_ref(),
+        "twist-payoff".as_ref(),
+        "--budget".as_ref(),
+        "520".as_ref(),
+    ]);
+    let pack = String::from_utf8(output.stdout).unwrap();
+    assert!(pack.len() <= 520, "{pack}");
+    assert!(pack.contains("## Hard Canon"), "{pack}");
+    assert!(pack.contains("Required canon."), "{pack}");
+    assert!(
+        !pack.contains("optional setup evidence optional setup evidence"),
+        "{pack}"
+    );
+    assert!(pack.contains("## Source Trail"), "{pack}");
+}
+
+#[test]
+fn budget_pruning_drops_evidence_from_section_end_before_omitting_section() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    for idx in 0..8 {
+        fs::write(
+            input.join(format!("canon-{idx}.md")),
+            format!("---\ncanon: Canon evidence {idx}.\n---\n# Canon {idx}\n"),
+        )
+        .unwrap();
+    }
+    let schema = tmp.path().join("schema.yml");
+    write_schema(&schema);
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+
+    let output = run(&[
+        "context".as_ref(),
+        "--wiki".as_ref(),
+        out.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--task".as_ref(),
+        "twist-payoff".as_ref(),
+        "--budget".as_ref(),
+        "620".as_ref(),
+    ]);
+    let pack = String::from_utf8(output.stdout).unwrap();
+    assert!(pack.len() <= 620, "{pack}");
+    assert!(pack.contains("## Hard Canon"), "{pack}");
+    assert!(pack.contains("Canon evidence 0."), "{pack}");
+    assert!(!pack.contains("Canon evidence 7."), "{pack}");
+    assert!(
+        pack.contains("Omitted due to budget; see Source Trail."),
+        "{pack}"
+    );
     assert!(pack.contains("## Source Trail"), "{pack}");
 }
 
@@ -758,10 +962,93 @@ The key is visible in chapter 1.
         .as_array()
         .unwrap()
         .iter()
-        .find(|page| page["generated_path"] == "fragments/a/index.md")
+        .find(|page| page["generated_path"] == "fragments/a/setup.md")
         .unwrap()["fields"]["setup"][0];
     assert_eq!(setup["line_start"], 10);
     assert_eq!(setup["line_end"], 10);
+}
+
+#[test]
+fn catalog_maps_regular_generated_pages_to_fragment_source_ranges() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(
+        input.join("a.md"),
+        r#"---
+title: A
+canon: Frontmatter canon.
+---
+# A
+
+Preface line.
+
+## Canon
+
+Heading canon.
+
+## Setup
+
+Setup evidence.
+"#,
+    )
+    .unwrap();
+    let schema = tmp.path().join("schema.yml");
+    write_schema(&schema);
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+
+    let catalog: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join(".md-wiki/catalog.json")).unwrap()).unwrap();
+    let page = |path: &str| {
+        catalog["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|page| page["generated_path"] == path)
+            .unwrap_or_else(|| panic!("missing catalog page {path}"))
+    };
+
+    assert_eq!(
+        page("fragments/a/index.md")["source_range"]["line_start"],
+        1
+    );
+    assert_eq!(page("fragments/a/index.md")["source_range"]["line_end"], 8);
+    assert_eq!(
+        page("fragments/a/canon.md")["source_range"]["line_start"],
+        9
+    );
+    assert_eq!(page("fragments/a/canon.md")["source_range"]["line_end"], 12);
+    assert_eq!(
+        page("fragments/a/setup.md")["source_range"]["line_start"],
+        13
+    );
+    assert_eq!(page("fragments/a/setup.md")["source_range"]["line_end"], 15);
+
+    assert!(
+        page("fragments/a/index.md")["fields"]["canon"]
+            .as_array()
+            .is_some_and(|items| items
+                .iter()
+                .any(|item| item["text"] == "Frontmatter canon."))
+    );
+    assert!(
+        page("fragments/a/canon.md")["fields"]["canon"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["text"] == "Heading canon."))
+    );
+    assert!(
+        page("fragments/a/setup.md")["fields"]["setup"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["text"] == "Setup evidence."))
+    );
 }
 
 #[test]
@@ -813,7 +1100,44 @@ canon: B remembers A.
 }
 
 #[test]
-fn plain_add_after_schema_init_is_rejected_without_deleting_schema_artifacts() {
+fn plain_add_after_schema_init_reuses_persisted_schema() {
+    let tmp = TempDir::new().unwrap();
+    let input = tmp.path().join("src");
+    fs::create_dir_all(&input).unwrap();
+    fs::write(input.join("a.md"), "---\ncanon: A.\n---\n# A\n").unwrap();
+    let schema = tmp.path().join("schema.yml");
+    write_schema(&schema);
+    let out = tmp.path().join("wiki");
+    run(&[
+        "init".as_ref(),
+        input.as_os_str(),
+        "--schema".as_ref(),
+        schema.as_os_str(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(out.join(".md-wiki/manifest.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["schema"]["path"],
+        schema
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+    assert!(manifest["schema"]["hash"].as_str().is_some());
+
+    fs::write(input.join("b.md"), "---\ncanon: B.\n---\n# B\n").unwrap();
+    run(&["add".as_ref(), "--out".as_ref(), out.as_os_str()]);
+    assert!(out.join(".md-wiki/catalog.json").exists());
+    assert!(out.join("agent/fields/canon.md").exists());
+    let canon = fs::read_to_string(out.join("agent/fields/canon.md")).unwrap();
+    assert!(canon.contains("B."), "{canon}");
+}
+
+#[test]
+fn plain_add_rejects_changed_persisted_schema() {
     let tmp = TempDir::new().unwrap();
     let input = tmp.path().join("src");
     fs::create_dir_all(&input).unwrap();
@@ -830,10 +1154,13 @@ fn plain_add_after_schema_init_is_rejected_without_deleting_schema_artifacts() {
         out.as_os_str(),
     ]);
 
+    let mut body = fs::read_to_string(&schema).unwrap();
+    body.push_str("\n# changed\n");
+    fs::write(&schema, body).unwrap();
     fs::write(input.join("b.md"), "# B\n").unwrap();
+
     let output = run_fail(&["add".as_ref(), "--out".as_ref(), out.as_os_str()]);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("schema pack changed"), "{stderr}");
     assert!(stderr.contains("--schema"), "{stderr}");
-    assert!(out.join(".md-wiki/catalog.json").exists());
-    assert!(out.join("agent/fields/canon.md").exists());
 }

@@ -29,9 +29,10 @@ Runs the full continuous verification gate:
   1. cargo fmt --check
   2. cargo clippy -- -D warnings
   3. cargo test
-  4. cargo run --example quality_score -- --min-score N
-  5. cargo run --example large_md_gate -- --mode normal --min-score 100
-  6. cargo run --example agentic_search_gate -- --mode normal --min-score 100
+  4. cargo metadata --locked --offline
+  5. cargo run --example quality_score -- --min-score N
+  6. cargo run --example large_md_gate -- --mode normal --min-score 100
+  7. cargo run --example agentic_search_gate -- --mode normal --min-score 100
 
 With --record-score, writes per-commit score reports under DIR.
 USAGE
@@ -47,6 +48,7 @@ done
 cargo fmt --check
 cargo clippy -- -D warnings
 cargo test
+cargo metadata --locked --offline --format-version 1 >/dev/null
 
 score_args=(--min-score "$min_score")
 if [[ "$record_score" -eq 1 ]]; then
