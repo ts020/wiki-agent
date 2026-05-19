@@ -8,8 +8,9 @@ use md_wiki::input_classifier::{InputKind, classify_scanned};
 use md_wiki::link::resolve_all;
 use md_wiki::notes::ingest_notes;
 use md_wiki::output_plan::{
-    Manifest, ManifestInputKind, OutputLock, OutputPlan, apply_incremental, read_manifest,
-    source_hashes, write_manifest, write_plan_to_clean_dir,
+    Manifest, ManifestInputKind, ManifestSchema, OutputLock, OutputPlan, apply_incremental,
+    read_manifest, schema_manifest, source_hashes, validate_manifest_schema, write_manifest,
+    write_plan_to_clean_dir,
 };
 use md_wiki::relations::compute_relations;
 use md_wiki::render::tags::build_tag_index;
@@ -116,6 +117,7 @@ struct PreparedGeneration {
 
 struct DesiredOutput {
     plan: OutputPlan,
+    schema: Option<ManifestSchema>,
     source_hashes: std::collections::BTreeMap<String, String>,
 }
 
@@ -143,6 +145,7 @@ fn run_init(args: InitArgs) -> anyhow::Result<()> {
         &prepared.input_root,
         &prepared.input_path,
         prepared.recursive,
+        desired.schema.clone(),
         desired.source_hashes,
         &desired.plan,
     );
@@ -163,16 +166,7 @@ fn run_add(args: AddArgs) -> anyhow::Result<()> {
     let _lock = OutputLock::acquire(&args.out)?;
     let manifest = read_manifest(&args.out)?;
     validate_add_path(args.path.as_deref(), &manifest)?;
-    let schema_path = args.schema;
-    if schema_path.is_none()
-        && manifest
-            .generated_file_hashes
-            .contains_key(".md-wiki/catalog.json")
-    {
-        anyhow::bail!(
-            "this output was generated with --schema; rerun add with --schema to preserve schema artifacts"
-        );
-    }
+    let schema_path = resolve_add_schema_path(args.schema, &manifest)?;
 
     let input_path = PathBuf::from(&manifest.input_path);
     let prepared = prepare_generation_for_add(&manifest, &input_path, &args.out, schema_path)?;
@@ -188,6 +182,7 @@ fn run_add(args: AddArgs) -> anyhow::Result<()> {
         &prepared.input_root,
         &prepared.input_path,
         prepared.recursive,
+        desired.schema.clone(),
         desired.source_hashes,
         &desired.plan,
     );
@@ -201,6 +196,28 @@ fn run_add(args: AddArgs) -> anyhow::Result<()> {
         "md-wiki add complete"
     );
     Ok(())
+}
+
+fn resolve_add_schema_path(
+    requested: Option<PathBuf>,
+    manifest: &Manifest,
+) -> anyhow::Result<Option<PathBuf>> {
+    if requested.is_some() {
+        return Ok(requested);
+    }
+    if let Some(schema) = &manifest.schema {
+        validate_manifest_schema(schema)?;
+        return Ok(Some(PathBuf::from(&schema.path)));
+    }
+    if manifest
+        .generated_file_hashes
+        .contains_key(".md-wiki/catalog.json")
+    {
+        anyhow::bail!(
+            "this output was generated with --schema before schema persistence existed; rerun add with --schema to preserve schema artifacts"
+        );
+    }
+    Ok(None)
 }
 
 fn prepare_generation_for_add(
@@ -351,6 +368,11 @@ fn build_desired_output(prepared: &PreparedGeneration) -> anyhow::Result<Desired
 
     Ok(DesiredOutput {
         plan,
+        schema: prepared
+            .schema_path
+            .as_deref()
+            .map(schema_manifest)
+            .transpose()?,
         source_hashes: source_hashes(&prepared.input_root, &prepared.files)?,
     })
 }

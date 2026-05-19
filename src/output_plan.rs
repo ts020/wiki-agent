@@ -28,8 +28,16 @@ pub struct Manifest {
     pub input_root: String,
     pub input_path: String,
     pub recursive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<ManifestSchema>,
     pub source_hashes: BTreeMap<String, String>,
     pub generated_file_hashes: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestSchema {
+    pub path: String,
+    pub hash: String,
 }
 
 pub struct OutputLock {
@@ -82,6 +90,7 @@ impl Manifest {
         input_root: &Path,
         input_path: &Path,
         recursive: bool,
+        schema: Option<ManifestSchema>,
         source_hashes: BTreeMap<String, String>,
         plan: &OutputPlan,
     ) -> Self {
@@ -92,10 +101,32 @@ impl Manifest {
             input_root: markdown_path(input_root),
             input_path: markdown_path(input_path),
             recursive,
+            schema,
             source_hashes,
             generated_file_hashes: plan_hashes(plan),
         }
     }
+}
+
+pub fn schema_manifest(path: &Path) -> Result<ManifestSchema> {
+    let body = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    Ok(ManifestSchema {
+        path: markdown_path(&path),
+        hash: stable_hash(&body),
+    })
+}
+
+pub fn validate_manifest_schema(schema: &ManifestSchema) -> Result<()> {
+    let path = Path::new(&schema.path);
+    let current = schema_manifest(path)?;
+    if current.hash != schema.hash {
+        anyhow::bail!(
+            "schema pack changed since init/add: {}; rerun add with --schema to update schema artifacts",
+            schema.path
+        );
+    }
+    Ok(())
 }
 
 fn output_lock_path(output_root: &Path) -> PathBuf {

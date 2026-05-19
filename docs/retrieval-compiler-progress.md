@@ -9,6 +9,7 @@ Retrieval compiler implementation included in the PR branch:
 
 - `Cargo.toml` / `Cargo.lock`: add `serde_yaml`
 - `src/lib.rs`: export `schema`
+- `src/output_plan.rs`: persist schema path/hash in manifest for schema-aware `add`
 - `src/main.rs`: add `--schema` to `init` / `add`, add `context` subcommand
 - `docs/retrieval-compiler-progress.md`: repository-visible progress tracker
 - `src/schema.rs`: schema pack parsing, catalog generation, field catalogs, context pack rendering
@@ -17,13 +18,14 @@ Retrieval compiler implementation included in the PR branch:
 Latest verified commands for the code changes:
 
 - [x] `rtk proxy cargo fmt --check`
-- [x] `rtk proxy cargo test --test schema_context` -> 8 passed
-- [x] `rtk proxy cargo test` -> 166 passed
+- [x] `rtk proxy cargo test --test schema_context` -> 22 passed
+- [x] `rtk proxy cargo test` -> 180 passed
 - [x] `rtk proxy cargo clippy -- -D warnings`
 - [x] `rtk scripts/verify.sh`
   - includes `cargo fmt --check`
   - includes `cargo clippy -- -D warnings`
   - includes `cargo test`
+  - includes `cargo metadata --locked --offline --filter-platform <host>`
   - includes `quality_score`, `large_md_gate`, and `agentic_search_gate`
 
 Package check status:
@@ -71,72 +73,53 @@ Legend:
   - Covered by `tests/schema_context.rs::schema_validation_rejects_undefined_context_fields`
   - Still worth adding explicit malformed YAML / missing required top-level field cases.
 
-- [~] AC-25 catalog
+- [x] AC-25 catalog
   - Implemented: `.md-wiki/catalog.json` with schema id/version, generated path, source path/range, entities, tags, headings, extracted fields, outgoing links, backlinks.
   - Review fix: heading field evidence ranges now account for YAML frontmatter lines.
-  - Gap: generated page source ranges are still coarse page/source ranges.
+  - Current iteration: regular Markdown generated page source ranges now track entry / h2 fragment page line ranges, and heading field evidence is attached to the generated page containing that source range. Large Markdown pages already use `md_wiki.line_ranges`.
+  - Covered by `tests/schema_context.rs::catalog_maps_regular_generated_pages_to_fragment_source_ranges`.
 
 - [x] AC-26 field catalog
   - Covered by `tests/schema_context.rs::schema_init_generates_internal_catalog_and_field_catalogs`
   - Covered by `tests/schema_context.rs::add_with_schema_refreshes_catalog_and_field_catalogs`
 
-- [~] AC-27 context pack generation
+- [x] AC-27 context pack generation
   - Implemented: `md-wiki context --wiki <DIR> --schema <YAML> --task <TASK>` outputs Markdown with `md_wiki_context`, recipe title, sections, and `Source Trail`.
-  - Gap: candidate collection is currently simple field/entity/query matching.
+  - Current iteration: entity matches expand wikilink/backlink 1 hop; task field pages, query matches, and time string matches are deterministically merged by priority.
+  - Covered by `tests/schema_context.rs::entity_matches_expand_one_hop_links_and_backlinks` and `tests/schema_context.rs::time_filter_matches_explicit_schema_field_metadata`.
 
 - [x] AC-28 required field missing evidence
   - Covered by `tests/schema_context.rs::context_outputs_markdown_pack_with_missing_evidence_budget_and_determinism`
 
-- [~] AC-29 context budget
+- [x] AC-29 context budget
   - Implemented: output is capped by `--budget` / recipe default.
   - Review fix: budget pruning preserves YAML frontmatter, context title, and `Source Trail` marker.
-  - Gap: truncation is still coarse; FR-22 wants deterministic section/evidence pruning.
+  - Current iteration: budget pruning keeps required sections and `Missing Required Evidence` before optional sections when they fit, then prunes `Source Trail` deterministically.
+  - Current iteration: section-internal evidence pruning keeps deterministic first evidence lines and drops later evidence before omitting the section.
+  - Covered by `tests/schema_context.rs::budget_pruning_drops_evidence_from_section_end_before_omitting_section`.
 
 - [x] AC-30 retrieval determinism
   - Covered by `tests/schema_context.rs::context_outputs_markdown_pack_with_missing_evidence_budget_and_determinism`
 
-- [~] AC-31 no inference / no network
+- [x] AC-31 no inference / no network
   - Implemented by architecture: no LLM, embedding, external API, network, or schema code execution.
-  - Gap: no dedicated offline/dependency gate yet.
+  - Current iteration: `scripts/verify.sh` now includes `cargo metadata --locked --offline --filter-platform <host> --format-version 1` as a dependency/offline gate.
 
 ## Next Tasks
 
-1. Decide whether to persist schema usage across `add` in a future iteration.
-   - Current behavior: schema-compiled outputs reject plain `add`; users must pass `add --schema`.
-   - Future option: store schema path/hash in manifest and let plain `add` reuse it.
+No remaining implementation tasks for the current retrieval compiler PR scope.
 
-2. Improve catalog source ranges.
-   - Track heading body line ranges accurately.
-   - Attach field evidence ranges to the source range that produced each item.
-   - For generated fragment pages, map source range to that fragment, not the whole source.
+Future hardening candidates, outside the current completion gate:
 
-3. Implement FR-21 candidate priority.
-   - Entity matches first.
-   - Expand wikilink/backlink 1 hop from matched pages.
-   - Add task field pages.
-   - Add query string matches.
-   - Add time metadata matches.
-   - Stable sort by priority, generated path, source range start, field name, and section order.
-
-4. Implement FR-22 budget pruning.
-   - Preserve YAML frontmatter and `Source Trail`.
-   - Drop optional sections from lowest priority / latest section order first.
-   - Drop evidence from the end of deterministic order.
-   - Replace too-large section bodies with a deterministic omitted note.
-
-5. Add AC-31 mechanical gate.
-   - Add dependency/offline check to `scripts/verify.sh` or a dedicated test.
-   - Update `docs/要件定義/17-継続検証と品質スコア.md` from "planned" to actual test targets where covered.
+1. Add regular-Markdown byte ranges to catalog if downstream tools need byte-level citation.
+2. Add typed time comparator semantics if schema packs later define structured time fields beyond string matching.
 
 ## Open Decisions
 
 - Schema persistence policy for `add`:
-  - Current PR chooses explicit rejection for schema-compiled outputs when `add` is run without `--schema`.
-  - A future manifest field could persist schema path/hash and allow plain `add` to reuse it.
-
-- Catalog precision target:
-  - Current implementation is enough for the vertical slice.
-  - Full FR-19/AC-25 quality needs generated page and field evidence ranges tied to actual source sections.
+  - Resolved: schema-compiled outputs persist schema path/hash in `.md-wiki/manifest.json`.
+  - Plain `add` reuses the persisted schema when the hash matches.
+  - If the schema file changed, plain `add` rejects and asks for explicit `--schema`.
 
 ## Useful Commands
 

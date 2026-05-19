@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::link::LinkGraph;
 use crate::metadata_renderer::markdown_path;
-use crate::model::{Node, iter_pages};
+use crate::model::{Node, PageKind, iter_pages};
 use crate::notes::headings;
 use crate::output_plan::{OutputPlan, insert_bytes, insert_text};
 
@@ -201,27 +201,29 @@ pub fn build_catalog(
         let tags = node.note.frontmatter.tags.clone();
         let headings: Vec<String> = node.note.headings.iter().map(|h| h.text.clone()).collect();
         let line_end = source_text.lines().count().max(1);
+        let page_ranges = page_source_ranges(node, &source_text);
 
         for page in iter_pages(node) {
             let generated_path = markdown_path(&page.output_path);
+            let source_range = page_ranges
+                .get(&page.output_path)
+                .cloned()
+                .unwrap_or(SourceRange {
+                    line_start: 1,
+                    line_end,
+                });
+            let page_fields = fields_for_page(&fields, &source_range);
             seen_paths.insert(generated_path.clone());
             pages.push(CatalogPage {
                 generated_path,
                 source_path: markdown_path(&node.note.source_file),
-                source_range: SourceRange {
-                    line_start: 1,
-                    line_end,
-                },
+                source_range,
                 title: page.title,
                 doc_type: format!("{:?}", page.kind).to_lowercase(),
                 entities: entities.clone(),
                 tags: tags.clone(),
                 headings: headings.clone(),
-                fields: if page.output_path == node.output_path {
-                    fields.clone()
-                } else {
-                    BTreeMap::new()
-                },
+                fields: page_fields,
                 outgoing_links: graph
                     .forward_of(&page.output_path)
                     .iter()
@@ -246,6 +248,100 @@ pub fn build_catalog(
         },
         pages,
     }
+}
+
+fn page_source_ranges(node: &Node, source_text: &str) -> BTreeMap<PathBuf, SourceRange> {
+    let source_line_end = source_text.lines().count().max(1);
+    let body_line_offset = source_body_line_offset(source_text);
+    let body_lines: Vec<&str> = node.note.body.split('\n').collect();
+    let mut search_start = 0usize;
+    let mut out = BTreeMap::new();
+
+    for page in iter_pages(node) {
+        let body_span = raw_body_line_span(&page.raw_body, &body_lines, &mut search_start);
+        let range = match (page.kind, body_span) {
+            (PageKind::Entry, Some((_, body_end))) => SourceRange {
+                line_start: 1,
+                line_end: (body_end + body_line_offset).max(1),
+            },
+            (PageKind::Entry, None) => SourceRange {
+                line_start: 1,
+                line_end: body_line_offset.max(1),
+            },
+            (_, Some((body_start, body_end))) => SourceRange {
+                line_start: body_start + body_line_offset,
+                line_end: body_end + body_line_offset,
+            },
+            (_, None) => SourceRange {
+                line_start: 1,
+                line_end: source_line_end,
+            },
+        };
+        out.insert(page.output_path, clamp_source_range(range, source_line_end));
+    }
+
+    out
+}
+
+fn raw_body_line_span(
+    raw_body: &str,
+    body_lines: &[&str],
+    search_start: &mut usize,
+) -> Option<(usize, usize)> {
+    if raw_body.is_empty() {
+        return None;
+    }
+    let raw_lines: Vec<&str> = raw_body.split('\n').collect();
+    if raw_lines.is_empty() || raw_lines.len() > body_lines.len() {
+        return None;
+    }
+    if let Some(span) = find_line_span(&raw_lines, body_lines, *search_start) {
+        *search_start = span.1;
+        return Some((span.0 + 1, span.1));
+    }
+    find_line_span(&raw_lines, body_lines, 0).map(|span| {
+        *search_start = span.1;
+        (span.0 + 1, span.1)
+    })
+}
+
+fn find_line_span(needle: &[&str], haystack: &[&str], start_at: usize) -> Option<(usize, usize)> {
+    if needle.len() > haystack.len() {
+        return None;
+    }
+    let max_start = haystack.len() - needle.len();
+    for start in start_at.min(max_start)..=max_start {
+        if haystack[start..start + needle.len()] == *needle {
+            return Some((start, start + needle.len()));
+        }
+    }
+    None
+}
+
+fn clamp_source_range(mut range: SourceRange, line_end: usize) -> SourceRange {
+    range.line_start = range.line_start.clamp(1, line_end);
+    range.line_end = range.line_end.clamp(range.line_start, line_end);
+    range
+}
+
+fn fields_for_page(
+    fields: &BTreeMap<String, Vec<FieldEvidence>>,
+    source_range: &SourceRange,
+) -> BTreeMap<String, Vec<FieldEvidence>> {
+    fields
+        .iter()
+        .filter_map(|(name, items)| {
+            let page_items: Vec<_> = items
+                .iter()
+                .filter(|item| {
+                    item.line_start >= source_range.line_start
+                        && item.line_start <= source_range.line_end
+                })
+                .cloned()
+                .collect();
+            (!page_items.is_empty()).then(|| (name.clone(), page_items))
+        })
+        .collect()
 }
 
 fn add_plan_metadata_pages(
@@ -773,6 +869,14 @@ fn pack_with_budget(input: ContextPackInput<'_>) -> String {
     let mut cited_pages = BTreeSet::new();
     let mut missing = Vec::new();
 
+    let required_section_titles: BTreeSet<String> = input
+        .recipe
+        .sections
+        .iter()
+        .filter(|section| section.required)
+        .map(|section| section.title.clone())
+        .collect();
+
     for section in input
         .recipe
         .sections
@@ -850,7 +954,7 @@ fn pack_with_budget(input: ContextPackInput<'_>) -> String {
         }
     }
 
-    enforce_budget(pack, input.budget)
+    enforce_budget(pack, input.budget, &required_section_titles)
 }
 
 fn context_header(
@@ -904,7 +1008,11 @@ fn slice_is_empty<T>(items: &[T]) -> bool {
     items.is_empty()
 }
 
-fn enforce_budget(pack: String, budget: usize) -> String {
+fn enforce_budget(
+    pack: String,
+    budget: usize,
+    required_section_titles: &BTreeSet<String>,
+) -> String {
     if pack.chars().count() <= budget {
         return pack;
     }
@@ -913,7 +1021,7 @@ fn enforce_budget(pack: String, budget: usize) -> String {
     let prefix_end = pack[..source_start].find("\n## ").unwrap_or(source_start);
     let mandatory_prefix = &pack[..prefix_end];
     let pre_source_body = &pack[prefix_end..source_start];
-    let missing_required = markdown_section(pre_source_body, "Missing Required Evidence");
+    let pre_source_sections = markdown_sections(pre_source_body);
     let source_body = pack
         .find(source_heading)
         .map(|idx| &pack[idx + source_heading.len()..])
@@ -923,17 +1031,46 @@ fn enforce_budget(pack: String, budget: usize) -> String {
     let mut out = String::new();
     out.push_str(mandatory_prefix);
 
-    let preserved_sections: Vec<&str> = missing_required.into_iter().collect();
     let reserved_len =
         omitted.chars().count() + source_heading.chars().count() + trail_omitted.chars().count();
-    for section in preserved_sections {
-        let section_len = section.chars().count();
-        if out.chars().count() + section_len + reserved_len <= budget {
-            out.push_str(section);
+    let mut omitted_any_section = false;
+    for section in &pre_source_sections {
+        let must_keep = section.title == "Missing Required Evidence"
+            || required_section_titles.contains(section.title);
+        if !must_keep {
+            continue;
+        }
+        if push_section_with_budget(&mut out, section.body, reserved_len, budget) {
+            continue;
+        }
+        if !push_pruned_section_with_budget(&mut out, section.body, reserved_len, budget) {
+            omitted_any_section = true;
         }
     }
 
-    out.push_str(omitted);
+    for section in &pre_source_sections {
+        let already_handled = section.title == "Missing Required Evidence"
+            || required_section_titles.contains(section.title);
+        if already_handled {
+            continue;
+        }
+        if push_section_with_budget(&mut out, section.body, reserved_len, budget) {
+            continue;
+        }
+        if !push_pruned_section_with_budget(&mut out, section.body, reserved_len, budget) {
+            omitted_any_section = true;
+        }
+    }
+
+    if omitted_any_section
+        && out.chars().count()
+            + omitted.chars().count()
+            + source_heading.chars().count()
+            + trail_omitted.chars().count()
+            <= budget
+    {
+        out.push_str(omitted);
+    }
     out.push_str(source_heading);
 
     let base_len = out.chars().count();
@@ -963,15 +1100,89 @@ fn enforce_budget(pack: String, budget: usize) -> String {
     out
 }
 
-fn markdown_section<'a>(body: &'a str, title: &str) -> Option<&'a str> {
-    let marker = format!("\n## {title}");
-    let start = body.find(&marker)?;
-    let content_start = start + marker.len();
-    let end = body[content_start..]
-        .find("\n## ")
-        .map(|idx| content_start + idx)
-        .unwrap_or(body.len());
-    Some(&body[start..end])
+struct MarkdownSection<'a> {
+    title: &'a str,
+    body: &'a str,
+}
+
+fn markdown_sections(body: &str) -> Vec<MarkdownSection<'_>> {
+    let mut sections = Vec::new();
+    let mut starts = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(relative) = body[cursor..].find("\n## ") {
+        let start = cursor + relative;
+        starts.push(start);
+        cursor = start + 1;
+    }
+    for (idx, start) in starts.iter().enumerate() {
+        let end = starts.get(idx + 1).copied().unwrap_or(body.len());
+        let section = &body[*start..end];
+        let title = section
+            .lines()
+            .find(|line| line.starts_with("## "))
+            .and_then(|line| line.strip_prefix("## "))
+            .unwrap_or("")
+            .trim();
+        sections.push(MarkdownSection {
+            title,
+            body: section,
+        });
+    }
+    sections
+}
+
+fn push_section_with_budget(
+    out: &mut String,
+    section: &str,
+    reserved_len: usize,
+    budget: usize,
+) -> bool {
+    if out.chars().count() + section.chars().count() + reserved_len <= budget {
+        out.push_str(section);
+        true
+    } else {
+        false
+    }
+}
+
+fn push_pruned_section_with_budget(
+    out: &mut String,
+    section: &str,
+    reserved_len: usize,
+    budget: usize,
+) -> bool {
+    let omitted_note = "- Omitted due to budget; see Source Trail.\n";
+    let mut candidate = String::new();
+    let mut omitted_evidence = false;
+    let mut saw_evidence = false;
+
+    for line in section.lines() {
+        let line_with_newline = format!("{line}\n");
+        if !line.starts_with("- ") {
+            candidate.push_str(&line_with_newline);
+            continue;
+        }
+        saw_evidence = true;
+        if out.chars().count()
+            + candidate.chars().count()
+            + line_with_newline.chars().count()
+            + omitted_note.chars().count()
+            + reserved_len
+            <= budget
+        {
+            candidate.push_str(&line_with_newline);
+        } else {
+            omitted_evidence = true;
+        }
+    }
+
+    if !saw_evidence {
+        return false;
+    }
+    if omitted_evidence {
+        candidate.push_str(omitted_note);
+    }
+    push_section_with_budget(out, &candidate, reserved_len, budget)
 }
 
 fn compact_budget_floor(mandatory_prefix: &str, budget: usize) -> String {
