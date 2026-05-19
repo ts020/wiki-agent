@@ -15,6 +15,7 @@ use md_wiki::relations::compute_relations;
 use md_wiki::render::tags::build_tag_index;
 use md_wiki::render::{WikiOutput, build_core_wiki_plan};
 use md_wiki::scan::{ScanConfig, ScannedFile, scan, scan_single_file};
+use md_wiki::schema::{add_schema_outputs, load_schema, render_context_pack};
 
 const NOTE_COUNT_WARN: usize = 5_000;
 
@@ -22,7 +23,7 @@ const NOTE_COUNT_WARN: usize = 5_000;
 #[command(
     name = "md-wiki",
     version,
-    about = "Markdown ファイルを init/add で育てる個人 wiki ジェネレータ"
+    about = "ローカル Markdown corpus を agent 向け retrieval artifacts と context pack へ変換する"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -35,6 +36,8 @@ enum Command {
     Init(InitArgs),
     /// 初期化済み wiki を入力 root の現在状態へ差分更新する
     Add(AddArgs),
+    /// schema pack と内部 catalog から Markdown context pack を出力する
+    Context(ContextArgs),
 }
 
 #[derive(Args, Debug)]
@@ -50,6 +53,10 @@ struct InitArgs {
     /// 出力先ディレクトリ
     #[arg(short, long, default_value = "./md-wiki")]
     out: PathBuf,
+
+    /// field 抽出と context recipe を定義する schema pack YAML
+    #[arg(long)]
+    schema: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -60,6 +67,41 @@ struct AddArgs {
     /// 出力先ディレクトリ
     #[arg(short, long, default_value = "./md-wiki")]
     out: PathBuf,
+
+    /// field 抽出と context recipe を定義する schema pack YAML
+    #[arg(long)]
+    schema: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct ContextArgs {
+    /// 生成済み wiki ディレクトリ
+    #[arg(long)]
+    wiki: PathBuf,
+
+    /// compile 時と同じ schema pack YAML
+    #[arg(long)]
+    schema: PathBuf,
+
+    /// schema pack の contexts に定義された task
+    #[arg(long)]
+    task: String,
+
+    /// retrieval の検索起点
+    #[arg(long)]
+    entity: Vec<String>,
+
+    /// 明示 metadata に対する一致条件
+    #[arg(long)]
+    time: Option<String>,
+
+    /// title / heading / tag / field text への文字列一致 query
+    #[arg(long)]
+    query: Option<String>,
+
+    /// context pack の文字数上限
+    #[arg(long)]
+    budget: Option<usize>,
 }
 
 struct PreparedGeneration {
@@ -69,6 +111,7 @@ struct PreparedGeneration {
     project_title: String,
     recursive: bool,
     files: Vec<ScannedFile>,
+    schema_path: Option<PathBuf>,
 }
 
 struct DesiredOutput {
@@ -87,12 +130,13 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Init(args) => run_init(args),
         Command::Add(args) => run_add(args),
+        Command::Context(args) => run_context(args),
     }
 }
 
 fn run_init(args: InitArgs) -> anyhow::Result<()> {
     let _lock = OutputLock::acquire(&args.out)?;
-    let prepared = prepare_generation(&args.input, !args.no_recursive, &args.out)?;
+    let prepared = prepare_generation(&args.input, !args.no_recursive, &args.out, args.schema)?;
     let desired = build_desired_output(&prepared)?;
     let manifest = Manifest::new(
         prepared.input_kind,
@@ -119,9 +163,19 @@ fn run_add(args: AddArgs) -> anyhow::Result<()> {
     let _lock = OutputLock::acquire(&args.out)?;
     let manifest = read_manifest(&args.out)?;
     validate_add_path(args.path.as_deref(), &manifest)?;
+    let schema_path = args.schema;
+    if schema_path.is_none()
+        && manifest
+            .generated_file_hashes
+            .contains_key(".md-wiki/catalog.json")
+    {
+        anyhow::bail!(
+            "this output was generated with --schema; rerun add with --schema to preserve schema artifacts"
+        );
+    }
 
     let input_path = PathBuf::from(&manifest.input_path);
-    let prepared = prepare_generation_for_add(&manifest, &input_path, &args.out)?;
+    let prepared = prepare_generation_for_add(&manifest, &input_path, &args.out, schema_path)?;
     if prepared.input_kind != manifest.input_kind {
         anyhow::bail!("manifest input kind no longer matches current input path");
     }
@@ -153,9 +207,10 @@ fn prepare_generation_for_add(
     manifest: &Manifest,
     input_path: &Path,
     output: &Path,
+    schema_path: Option<PathBuf>,
 ) -> anyhow::Result<PreparedGeneration> {
     if input_path.exists() {
-        return prepare_generation(input_path, manifest.recursive, output);
+        return prepare_generation(input_path, manifest.recursive, output, schema_path);
     }
     if manifest.input_kind != ManifestInputKind::File {
         anyhow::bail!("input does not exist: {}", input_path.display());
@@ -174,6 +229,7 @@ fn prepare_generation_for_add(
         project_title,
         recursive: manifest.recursive,
         files: Vec::new(),
+        schema_path,
     })
 }
 
@@ -181,6 +237,7 @@ fn prepare_generation(
     input: &Path,
     recursive: bool,
     output: &Path,
+    schema_path: Option<PathBuf>,
 ) -> anyhow::Result<PreparedGeneration> {
     if !input.exists() {
         anyhow::bail!("input does not exist: {}", input.display());
@@ -210,6 +267,7 @@ fn prepare_generation(
             project_title,
             recursive,
             files,
+            schema_path,
         })
     } else {
         let files = scan(&ScanConfig {
@@ -228,6 +286,7 @@ fn prepare_generation(
             project_title,
             recursive,
             files,
+            schema_path,
         })
     }
 }
@@ -284,6 +343,10 @@ fn build_desired_output(prepared: &PreparedGeneration) -> anyhow::Result<Desired
         graph: &graph,
     })?;
     plan_large_markdown_pages(&mut plan, &prepared.input_root, &large_files)?;
+    if let Some(schema_path) = &prepared.schema_path {
+        let schema = load_schema(schema_path)?;
+        add_schema_outputs(&mut plan, &nodes, &graph, &prepared.input_root, &schema)?;
+    }
     finalize_agentic_plan(&mut plan)?;
 
     Ok(DesiredOutput {
@@ -312,5 +375,19 @@ fn validate_add_path(path: Option<&Path>, manifest: &Manifest) -> anyhow::Result
     {
         anyhow::bail!("single-file wiki can only add the initialized file");
     }
+    Ok(())
+}
+
+fn run_context(args: ContextArgs) -> anyhow::Result<()> {
+    let pack = render_context_pack(
+        &args.wiki,
+        &args.schema,
+        &args.task,
+        &args.entity,
+        args.query.as_deref(),
+        args.time.as_deref(),
+        args.budget,
+    )?;
+    print!("{pack}");
     Ok(())
 }

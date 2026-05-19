@@ -3,7 +3,7 @@ name = "md-wiki-cli"
 version = "0.1.3"
 edition = "2024"
 rust-version = "1.85"
-description = "Generate an offline Markdown wiki from local Markdown notes."
+description = "Compile local Markdown notes into offline retrieval artifacts and context packs."
 license = "MIT"
 repository = "https://github.com/ts020/wiki-agent"
 homepage = "https://github.com/ts020/wiki-agent"
@@ -21,6 +21,7 @@ exclude = [
     "CLAUDE.md",
     "Cargo.toml.orig",
     "docs/OSS公開作業計画.md",
+    "docs/retrieval-compiler-progress.md",
     "docs/quality/history/**",
 ]
 
@@ -38,6 +39,7 @@ clap = { version = "4", features = ["derive"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
